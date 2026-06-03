@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-blue: #0066FF;
+  --color-brand-black: #0A0A0A;
+  --color-brand-dark: #121212;
+  --color-brand-surface: #1E1E1E;
+  --color-brand-border: #2A2A2A;
+  
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-brand-black text-white selection:bg-brand-blue selection:text-white font-sans;
+  }
+}
+
+@layer components {
+  .premium-card {
+    @apply bg-brand-surface border border-brand-border rounded-2xl overflow-hidden shadow-xl hover:border-brand-blue/50 transition-all duration-300;
+  }
+  
+  .premium-button-primary {
+    @apply bg-brand-blue hover:bg-blue-600 text-white font-medium px-6 py-3 rounded-xl transition-all active:scale-95 shadow-lg shadow-brand-blue/20;
+  }
+  
+  .premium-button-secondary {
+    @apply bg-transparent border border-brand-border hover:border-brand-blue text-white font-medium px-6 py-3 rounded-xl transition-all active:scale-95;
+  }
+  
+  .premium-input {
+    @apply bg-brand-dark border border-brand-border focus:border-brand-blue focus:ring-1 focus:ring-brand-blue rounded-xl px-4 py-3 outline-none transition-all placeholder:text-gray-500;
+  }
+}
+
+.glass-effect {
+  @apply backdrop-blur-lg bg-brand-black/80 border-b border-brand-border;
+}
+
+.glow-blue {
+  box-shadow: 0 0 20px rgba(0, 102, 255, 0.15);
+}
