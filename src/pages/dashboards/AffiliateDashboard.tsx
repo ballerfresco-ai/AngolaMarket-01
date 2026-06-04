@@ -12,22 +12,46 @@ import {
   Copy,
   Trophy,
   Wallet as WalletIcon,
-  User
+  User,
+  ShoppingCart,
+  ListOrdered,
+  CheckCircle,
+  XCircle,
+  Mail,
+  Check,
+  ShoppingBag,
+  CreditCard,
+  Calculator
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
 import ProfileTab from '../../components/ProfileTab';
+import { getAbandonedCarts, recoverAbandonedCart, AbandonedCart } from '../../lib/abandonedCarts';
+import { parseOrderDetails } from '../../lib/orderDetails';
 
 export default function AffiliateDashboard() {
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'wallet' | 'ranking' | 'profile'>('overview');
   const [products, setProducts] = useState<Product[]>([]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [orders, setOrders] = useState<any[]>([]);
 
   useEffect(() => {
-    fetchProducts();
-    fetchWallet();
+    if (profile) {
+      fetchProducts();
+      fetchWallet();
+      fetchOrders();
+    }
   }, [profile]);
+
+  const fetchOrders = async () => {
+    if (!profile) return;
+    const { data } = await supabase
+      .from('orders')
+      .select('*, products!inner(*)')
+      .eq('affiliate_id', profile.id);
+    setOrders(data || []);
+  };
 
   const fetchProducts = async () => {
     const { data } = await supabase.from('products').select('*').eq('status', 'approved');
@@ -111,7 +135,7 @@ export default function AffiliateDashboard() {
            initial={{ opacity: 0, y: 10 }}
            animate={{ opacity: 1, y: 0 }}
         >
-          {activeTab === 'overview' && <OverviewTab wallet={wallet} />}
+          {activeTab === 'overview' && <OverviewTab wallet={wallet} orders={orders} />}
           {activeTab === 'marketplace' && <ProductsTab products={products} />}
           {activeTab === 'wallet' && <WalletTab wallet={wallet} />}
           {activeTab === 'ranking' && <RankingTab />}
@@ -122,31 +146,297 @@ export default function AffiliateDashboard() {
   );
 }
 
-function OverviewTab({ wallet }: any) {
-  const stats = [
-    { label: 'Cliques totais', value: '1,248', icon: <ExternalLink /> },
-    { label: 'Conversão', value: '4.2%', icon: <TrendingUp /> },
-    { label: 'Vendas Afiliadas', value: '52', icon: <Share2 /> },
-    { label: 'Saldo Acumulado', value: `Kz ${Number(wallet?.balance || 0).toLocaleString()}`, icon: <DollarSign /> },
-  ];
+function OverviewTab({ wallet, orders }: any) {
+  const { profile } = useAuth();
+  const [localAbandonedCarts, setLocalAbandonedCarts] = useState<AbandonedCart[]>([]);
+
+  useEffect(() => {
+    if (profile) {
+      // Filter abandoned carts for this referrer
+      const carts = getAbandonedCarts().filter(c => c.affiliate_id === profile.id);
+      setLocalAbandonedCarts(carts);
+    }
+  }, [profile]);
+
+  const handleRecoverCart = (cartId: string, email: string) => {
+    const success = recoverAbandonedCart(cartId);
+    if (success) {
+      toast.success(`E-mail de recuperação enviado para: ${email}`);
+      if (profile) {
+        setLocalAbandonedCarts(getAbandonedCarts().filter(c => c.affiliate_id === profile.id));
+      }
+    }
+  };
+
+  // Calculations for Affiliate's referred orders
+  const totalSalesCount = orders.length;
+  const completedOrders = orders.filter((o: any) => o.status === 'delivered');
+  const pendingOrders = orders.filter((o: any) => o.status === 'pending' || o.status === 'processing' || o.status === 'out_for_delivery');
+  const cancelledOrders = orders.filter((o: any) => o.status === 'cancelled');
+
+  // Revenue (Faturamento total correspondente)
+  const totalFaturamento = completedOrders.reduce((sum: number, o: any) => sum + Number(o.products?.price || 0), 0);
+
+  // Splits of Referred Orders
+  let sellerNetTotal = 0;
+  let affiliateNetTotal = 0;
+  let adminNetTotal = 0;
+
+  completedOrders.forEach((o: any) => {
+    const priceNum = Number(o.products?.price || 0);
+    const affiliateCommPercent = Number(o.products?.affiliate_commission) || 0;
+    const platformFee = priceNum * 0.10; // 10%
+    const affiliateReward = affiliateCommPercent > 0 ? priceNum * (affiliateCommPercent / 100) : 0;
+    const sellerNet = Math.max(0, priceNum - platformFee - affiliateReward);
+
+    sellerNetTotal += sellerNet;
+    affiliateNetTotal += affiliateReward;
+    adminNetTotal += platformFee;
+  });
+
+  // Abandoned Carts totals
+  const abandonedCount = localAbandonedCarts.length;
+  const abandonedValue = localAbandonedCarts.reduce((sum, c) => sum + (c.status === 'pending' ? Number(c.product_price) : 0), 0);
+
+  // Payment methods breakdown for referred orders
+  const paymentDistribution: { [key: string]: { count: number; value: number } } = {
+    'Pagamento no Ato de Entrega': { count: 0, value: 0 },
+    'Multicaixa Express': { count: 0, value: 0 },
+    'Transferência Bancária': { count: 0, value: 0 }
+  };
+
+  orders.forEach((o: any) => {
+    const details = parseOrderDetails(o.neighborhood);
+    const method = details.paymentMethod || 'Pagamento no Ato de Entrega';
+    if (paymentDistribution[method]) {
+      paymentDistribution[method].count += 1;
+      paymentDistribution[method].value += Number(o.products?.price || 0);
+    } else {
+      paymentDistribution[method] = { count: 1, value: Number(o.products?.price || 0) };
+    }
+  });
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-10">
       <div>
-        <h1 className="text-3xl font-bold font-display mb-2">Painel do Afiliado</h1>
-        <p className="text-gray-500">Promova os melhores produtos de Angola e ganhe comissões.</p>
+        <h1 className="text-3xl font-bold font-display text-white tracking-tight">Painel de Métricas do Afiliado</h1>
+        <p className="text-sm text-gray-400 font-sans mt-1">Monitorize os cliques, taxas de conversão, divisão líquida e canais de despacho indicados.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {stats.map((stat, i) => (
-          <div key={i} className="premium-card p-6">
-            <div className="w-12 h-12 bg-brand-dark rounded-xl flex items-center justify-center text-brand-blue border border-brand-border mb-4">
-              {stat.icon}
-            </div>
-            <p className="text-gray-500 text-sm mb-1">{stat.label}</p>
-            <p className="text-2xl font-bold font-display">{stat.value}</p>
+      {/* Stats Bento Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Wallet Balance */}
+        <div className="premium-card p-6 bg-gradient-to-br from-brand-surface/80 to-brand-blue/5 border-brand-blue/20">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-brand-blue/10 border border-brand-blue/20 text-brand-blue rounded-xl">
+              <DollarSign size={20} />
+            </span>
+            <span className="text-[10px] font-mono py-0.5 px-2 bg-green-500/10 border border-green-500/20 text-green-500 rounded-full font-bold uppercase tracking-wider">
+              Disponível
+            </span>
           </div>
-        ))}
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 font-sans">A Minha Carteira</p>
+          <p className="text-2xl font-bold text-white font-display">Kz {Number(wallet?.balance || 0).toLocaleString()}</p>
+          <span className="text-[10px] text-gray-500 block mt-1 font-mono">Ganhos de comissão líquida de indicação</span>
+        </div>
+
+        {/* Faturamento e Distribuição */}
+        <div className="premium-card p-6 border-brand-border/40">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-xl">
+              <TrendingUp size={20} />
+            </span>
+            <span className="text-[10px] text-indigo-400 font-mono font-bold uppercase tracking-wider">
+              Comissões
+            </span>
+          </div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 font-sans">Divisão das Suas Indicações</p>
+          <div className="space-y-1.5 text-xs text-gray-300 font-mono">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Volume Indicado:</span>
+              <span className="text-white font-semibold">Kz {totalFaturamento.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Suas Comissões:</span>
+              <span className="text-green-500 font-semibold">Kz {affiliateNetTotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between border-t border-brand-border/50 pt-1.5">
+              <span className="text-gray-500">Sellers (Produtores):</span>
+              <span className="text-pink-400 font-semibold">Kz {sellerNetTotal.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Encomendas Indicadas */}
+        <div className="premium-card p-6 border-brand-border/40">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 rounded-xl">
+              <ListOrdered size={20} />
+            </span>
+            <span className="text-[10px] font-mono py-0.5 px-2 bg-brand-surface border border-brand-border text-gray-400 rounded-full font-bold uppercase tracking-wider">
+              Vendas: {totalSalesCount}
+            </span>
+          </div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 font-sans">Conversões em Angolanas</p>
+          <div className="space-y-1.5 text-xs text-gray-300 font-mono">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Concluídos:</span>
+              <span className="text-green-500 font-semibold">{completedOrders.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Pendentes:</span>
+              <span className="text-yellow-500 font-semibold">{pendingOrders.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Cancelados:</span>
+              <span className="text-red-500 font-semibold">{cancelledOrders.length}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Carrinhos Abandonados do Link */}
+        <div className="premium-card p-6 bg-gradient-to-br from-brand-surface/80 to-pink-500/[0.03] border-pink-500/15">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-pink-500/10 border border-pink-500/20 text-pink-400 rounded-xl">
+              <ShoppingCart size={20} />
+            </span>
+            <span className="text-[10px] font-mono py-0.5 px-2 bg-pink-500/10 text-pink-500 rounded-full font-bold uppercase tracking-wider">
+              Seus Links
+            </span>
+          </div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 font-sans">Cliques Abandonados</p>
+          <p className="text-2xl font-bold text-white font-display">{abandonedCount} perdidos</p>
+          <span className="text-[10px] text-pink-400/90 block mt-1 font-mono">Volume retido: Kz {abandonedValue.toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* Methods and tips */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="premium-card p-6 lg:col-span-2 border-brand-border/40 flex flex-col justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white font-display flex items-center gap-2 mb-1">
+              <CreditCard size={18} className="text-brand-blue" /> Canais Preferidos de Compra (Seus Links)
+            </h3>
+            <p className="text-xs text-gray-500 font-sans mb-6">Volume acumulado de pagamentos de cliques convertidos por você.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {Object.entries(paymentDistribution).map(([method, data]) => {
+                const percentage = totalFaturamento > 0 ? Math.round((data.value / totalFaturamento) * 100) : 0;
+                return (
+                  <div key={method} className="p-4 rounded-xl bg-brand-dark/50 border border-brand-border/40 space-y-3">
+                    <span className="text-xs font-bold text-gray-400 block truncate">{method}</span>
+                    <div>
+                      <span className="text-2xl font-bold text-white block">{data.count}</span>
+                      <span className="text-[10px] text-brand-blue font-mono block">Valor: Kz {data.value.toLocaleString()}</span>
+                    </div>
+                    <div className="w-full bg-brand-dark h-1.5 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-brand-blue h-full rounded-full" 
+                        style={{ width: `${Math.max(5, percentage)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-gray-500 font-mono block text-right">{percentage}% das indicações</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="pt-4 border-t border-brand-border/40 mt-6 text-[10px] text-gray-500 font-sans">
+            * Dados calculados apenas com referência ao seu parâmetro único de indicação (?ref=ID)
+          </div>
+        </div>
+
+        {/* Small educational card */}
+        <div className="premium-card p-6 border-brand-border/40 bg-gradient-to-br from-brand-surface to-brand-blue/[0.02]">
+          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mb-4">
+            <Share2 size={20} />
+          </div>
+          <h3 className="text-lg font-bold text-white font-display mb-2">Aumente os Seus Ganhos</h3>
+          <p className="text-xs text-gray-400 font-sans leading-relaxed">
+            Partilhe os seus links de afiliado nas redes sociais como WhatsApp, Facebook e Instagram para atrair potenciais compradores angolanos.
+          </p>
+          <div className="h-px bg-brand-border/50 my-4" />
+          <p className="text-xs text-gray-400 font-sans leading-relaxed">
+            Quando um utilizador inicia o preenchimento dos dados no checkout mas não conclui, o sistema captura como <strong>Carrinho Abandonado</strong> do seu link. Pode tentar recapturá-los contactando o utilizador abaixo!
+          </p>
+        </div>
+      </div>
+
+      {/* Abandoned Carts specific to this Affiliate */}
+      <div className="premium-card p-6 border-brand-border/40">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-xl font-bold font-display text-white">Carrinhos Abandonados dos Seus Links</h2>
+            <p className="text-xs text-gray-400 font-sans mt-0.5">Potenciais clientes que acederam ao checkout com o seu código de afiliado mas deixaram a compra pela metade.</p>
+          </div>
+          <span className="font-mono text-xs font-bold text-pink-400 py-1 px-3 rounded-full bg-pink-500/10 border border-pink-500/20">
+            {localAbandonedCarts.filter(c => c.status === 'pending').length} Carrinhos Pendentes
+          </span>
+        </div>
+
+        {localAbandonedCarts.length === 0 ? (
+          <div className="text-center py-12 border border-dashed border-brand-border/40 rounded-2xl bg-brand-dark/20">
+            <ShoppingBag className="mx-auto text-gray-600 mb-3" size={32} />
+            <p className="text-sm font-sans text-gray-400">Nenhum carrinho abandonado atribuído aos seus links de afiliado.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-sans text-sm">
+              <thead>
+                <tr className="border-b border-brand-border/60 text-xs font-bold uppercase tracking-wider text-gray-500">
+                  <th className="pb-2 text-left">Utilizador</th>
+                  <th className="pb-2 text-left">Produto Tentado</th>
+                  <th className="pb-2 text-left">Comissão Esperada</th>
+                  <th className="pb-2 text-left">Abandono em</th>
+                  <th className="pb-2 text-center">Estado</th>
+                  <th className="pb-2 text-right">Ação recomendada</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-brand-border/40">
+                {localAbandonedCarts.map((cart) => (
+                  <tr key={cart.id} className="hover:bg-brand-surface/20 transition-colors">
+                    <td className="py-4">
+                      <span className="font-bold text-white block">{cart.customer_name}</span>
+                      <span className="text-xs text-gray-500 block font-mono">{cart.customer_email}</span>
+                    </td>
+                    <td className="py-4 font-medium text-gray-300 max-w-[180px] truncate">
+                      {cart.product_name}
+                    </td>
+                    <td className="py-4 font-mono font-semibold text-green-500">
+                      Kz {Number(cart.product_price * 0.1).toLocaleString()} <span className="text-[10px] text-gray-400 font-sans font-normal">(Est. 10%)</span>
+                    </td>
+                    <td className="py-4 text-xs text-gray-400 font-mono">
+                      {new Date(cart.created_at).toLocaleDateString('pt-AO')}
+                    </td>
+                    <td className="py-4 text-center">
+                      <span className={`inline-block py-0.5 px-2 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${
+                        cart.status === 'recovered' 
+                          ? 'bg-green-500/10 border border-green-500/20 text-green-500' 
+                          : 'bg-red-500/10 border border-red-500/20 text-red-500 animate-pulse'
+                      }`}>
+                        {cart.status === 'recovered' ? 'Recuperado' : 'Pendente'}
+                      </span>
+                    </td>
+                    <td className="py-4 text-right">
+                      {cart.status === 'recovered' ? (
+                        <div className="text-xs text-green-500 font-bold font-mono">
+                          ✓ Email Enviado!
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleRecoverCart(cart.id, cart.customer_email)}
+                          className="premium-button py-1.5 px-3.5 text-xs font-bold text-brand-blue bg-brand-blue/5 border border-brand-blue/20 hover:bg-brand-blue hover:text-white cursor-pointer rounded-xl font-mono flex items-center gap-1 ml-auto uppercase tracking-wide"
+                        >
+                          <Mail size={12} /> Contactar
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

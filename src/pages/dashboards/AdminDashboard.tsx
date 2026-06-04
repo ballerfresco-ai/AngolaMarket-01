@@ -37,6 +37,9 @@ import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { Product, Withdrawal, Profile, DeliveryFee, Wallet } from '../../types/database';
 import ProfileTab from '../../components/ProfileTab';
+import { getAbandonedCarts, recoverAbandonedCart, AbandonedCart } from '../../lib/abandonedCarts';
+import { ShoppingBag, RefreshCw, Star, Trash2, Mail, Check, CreditCard, ChevronDown } from 'lucide-react';
+import { parseOrderDetails } from '../../lib/orderDetails';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'withdrawals' | 'users' | 'delivery' | 'rankings' | 'wallet' | 'orders' | 'profile'>('overview');
@@ -154,91 +157,404 @@ function UsersTab() {
 }
 
 function OverviewTab() {
-  const stats = [
-    { label: 'Vendas Totais', value: 'Kz 2.450.000', change: '+12.5%', isUp: true, icon: <DollarSign /> },
-    { label: 'Novos Utilizadores', value: '1,240', change: '+18.2%', isUp: true, icon: <Users /> },
-    { label: 'Encomendas', value: '642', change: '-2.4%', isUp: false, icon: <ListOrdered /> },
-    { label: 'Comissão Plataforma', value: 'Kz 245.000', change: '+5.4%', isUp: true, icon: <TrendingUp /> },
+  const [orders, setOrders] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [abandonedCarts, setAbandonedCarts] = useState<AbandonedCart[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchStats = async () => {
+    try {
+      setLoading(true);
+      const { data: ords, error: oErr } = await supabase
+        .from('orders')
+        .select('*, products(*)');
+      
+      if (oErr) throw oErr;
+      setOrders(ords || []);
+
+      const { data: profs, error: pErr } = await supabase
+        .from('profiles')
+        .select('*');
+      
+      if (pErr) throw pErr;
+      setProfiles(profs || []);
+
+      const carts = getAbandonedCarts();
+      setAbandonedCarts(carts);
+    } catch (e: any) {
+      console.error('Error fetching admin statistics:', e);
+      toast.error('Erro ao recolher dados estatísticos.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecoverCart = (cartId: string, email: string) => {
+    recoverAbandonedCart(cartId);
+    toast.success(`E-mail de recuperação enviado para: ${email}`);
+    // Refresh local lists
+    setAbandonedCarts(getAbandonedCarts());
+  };
+
+  // Calculations
+  const totalSalesCount = orders.length;
+  
+  // Completed, Pending, Cancelled Count
+  const completedOrders = orders.filter(o => o.status === 'delivered');
+  const pendingOrders = orders.filter(o => o.status === 'pending' || o.status === 'processing' || o.status === 'out_for_delivery');
+  const cancelledOrders = orders.filter(o => o.status === 'cancelled');
+
+  // Revenue (Faturamento do mercado)
+  const totalFaturamento = completedOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+
+  // Split calculation
+  let sellerNetTotal = 0;
+  let affiliateNetTotal = 0;
+  let adminNetTotal = 0;
+
+  completedOrders.forEach(o => {
+    const priceNum = Number(o.products?.price) || 0;
+    const affiliateCommPercent = Number(o.products?.affiliate_commission) || 0;
+    const platformFee = priceNum * 0.10; // 10%
+    const affiliateReward = affiliateCommPercent > 0 && o.affiliate_id ? priceNum * (affiliateCommPercent / 100) : 0;
+    const sellerNet = Math.max(0, priceNum - platformFee - affiliateReward);
+
+    sellerNetTotal += sellerNet;
+    affiliateNetTotal += affiliateReward;
+    adminNetTotal += platformFee;
+  });
+
+  // Abandoned carts sum
+  const abandonedCartsCount = abandonedCarts.length;
+  const abandonedCartsTotalValue = abandonedCarts.reduce((sum, c) => sum + (c.status === 'pending' ? Number(c.product_price) : 0), 0);
+
+  // Payment methods distribution
+  const paymentDistribution: { [key: string]: { count: number; value: number } } = {
+    'Pagamento no Ato de Entrega': { count: 0, value: 0 },
+    'Multicaixa Express': { count: 0, value: 0 },
+    'Transferência Bancária': { count: 0, value: 0 }
+  };
+
+  orders.forEach(o => {
+    const details = parseOrderDetails(o.neighborhood);
+    const method = details.paymentMethod || 'Pagamento no Ato de Entrega';
+    if (paymentDistribution[method]) {
+      paymentDistribution[method].count += 1;
+      paymentDistribution[method].value += Number(o.total || 0);
+    } else {
+      // Create dynamically if a new method appears
+      paymentDistribution[method] = { count: 1, value: Number(o.total || 0) };
+    }
+  });
+
+  // Calculate stats for graphs
+  // Group by day of week
+  const daysOfWeek = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const dailyGraphData = daysOfWeek.map((day, idx) => {
+    // Filter orders matching day
+    const matching = completedOrders.filter(o => {
+      const orderDate = new Date(o.created_at);
+      return orderDate.getDay() === idx;
+    });
+    const salesAmount = matching.reduce((sum, o) => sum + Number(o.total || 0), 0);
+    
+    // Filter abandoned matching day
+    const matchAbandoned = abandonedCarts.filter(c => {
+      const cartDate = new Date(c.created_at);
+      return cartDate.getDay() === idx;
+    });
+
+    return {
+      name: day,
+      'Faturamento (Kz)': salesAmount,
+      'Carts Abandonados': matchAbandoned.length
+    };
+  });
+
+  // Re-order starting from Monday to Sunday
+  const graphData = [
+    dailyGraphData[1], // Seg
+    dailyGraphData[2], // Ter
+    dailyGraphData[3], // Qua
+    dailyGraphData[4], // Qui
+    dailyGraphData[5], // Sex
+    dailyGraphData[6], // Sáb
+    dailyGraphData[0], // Dom
   ];
 
-  const data = [
-    { name: 'Seg', sales: 4000, users: 2400 },
-    { name: 'Ter', sales: 3000, users: 1398 },
-    { name: 'Qua', sales: 2000, users: 9800 },
-    { name: 'Qui', sales: 2780, users: 3908 },
-    { name: 'Sex', sales: 1890, users: 4800 },
-    { name: 'Sáb', sales: 2390, users: 3800 },
-    { name: 'Dom', sales: 3490, users: 4300 },
-  ];
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-32 space-y-4">
+        <RefreshCw size={40} className="text-brand-blue animate-spin" />
+        <p className="text-gray-400 font-sans text-sm animate-pulse">A calcular estatísticas do mercado angolano...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-12">
-      <div>
-        <h1 className="text-4xl font-bold font-display mb-2">Painel de Controlo</h1>
-        <p className="text-gray-500">Bem-vindo ao sistema de gestão AngolaMarket.</p>
+    <div className="space-y-10">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-4xl font-bold font-display text-white tracking-tight">Estatísticas Gerais (ADM)</h1>
+          <p className="text-sm text-gray-400 font-sans mt-1">Status completo de vendas, faturamento, divisões líquidas e carrinhos abandonados.</p>
+        </div>
+        <button 
+          onClick={fetchStats}
+          className="premium-button flex items-center justify-center gap-2 border-brand-border/60 hover:bg-brand-surface py-2.5 px-4 text-xs font-mono text-gray-300 font-semibold uppercase tracking-wider"
+        >
+          <RefreshCw size={14} /> Atualizar Painel
+        </button>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {stats.map((stat, i) => (
-          <div key={i} className="premium-card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-brand-dark rounded-xl flex items-center justify-center text-brand-blue border border-brand-border">
-                {stat.icon}
-              </div>
-              <div className={`flex items-center gap-1 text-sm font-bold ${stat.isUp ? 'text-green-500' : 'text-red-500'}`}>
-                {stat.isUp ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                {stat.change}
-              </div>
-            </div>
-            <p className="text-gray-500 text-sm mb-1">{stat.label}</p>
-            <p className="text-2xl font-bold font-display">{stat.value}</p>
+      {/* Main Stats Bento Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Faturamento */}
+        <div className="premium-card p-6 bg-gradient-to-br from-brand-surface/80 to-brand-blue/5 border-brand-blue/20">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-brand-blue/10 border border-brand-blue/20 text-brand-blue rounded-xl">
+              <DollarSign size={20} />
+            </span>
+            <span className="text-[10px] font-mono py-0.5 px-2 bg-green-500/10 border border-green-500/20 text-green-500 rounded-full font-bold uppercase tracking-wider">
+              Concluídas
+            </span>
           </div>
-        ))}
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 font-sans">Faturamento Total</p>
+          <p className="text-2xl font-bold text-white font-display">Kz {totalFaturamento.toLocaleString()}</p>
+          <span className="text-[10px] text-gray-500 block mt-1 font-mono">10% comissão admin inserida</span>
+        </div>
+
+        {/* Líquidos splits (Sellers, Affiliates, Admin) */}
+        <div className="premium-card p-6 border-brand-border/40">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-xl">
+              <Users size={20} />
+            </span>
+            <span className="text-[10px] font-mono py-0.5 px-2 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-full font-bold uppercase tracking-wider">
+              Divisão de Ganhos
+            </span>
+          </div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 font-sans">Liquido dos Participantes</p>
+          <div className="space-y-1.5 text-xs text-gray-300 font-mono">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Vendedores:</span>
+              <span className="text-white font-semibold">Kz {sellerNetTotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Afiliados:</span>
+              <span className="text-brand-blue font-semibold">Kz {affiliateNetTotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between border-t border-brand-border/50 pt-1.5 text-xs">
+              <span className="text-gray-400 font-bold">Admin (10%):</span>
+              <span className="text-pink-400 font-bold">Kz {adminNetTotal.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Encomendas Status */}
+        <div className="premium-card p-6 border-brand-border/40">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 rounded-xl">
+              <ListOrdered size={20} />
+            </span>
+            <span className="text-[10px] font-mono py-0.5 px-2 bg-brand-surface border border-brand-border text-gray-400 rounded-full font-bold uppercase tracking-wider">
+              Vendas: {totalSalesCount}
+            </span>
+          </div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 font-sans">Status de Pedidos</p>
+          <div className="space-y-1.5 text-xs text-gray-300 font-mono">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Concluídos:</span>
+              <span className="text-green-500 font-semibold">{completedOrders.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Pendentes:</span>
+              <span className="text-yellow-500 font-semibold">{pendingOrders.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Cancelados:</span>
+              <span className="text-red-500 font-semibold">{cancelledOrders.length}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Carrinhos Abandonados */}
+        <div className="premium-card p-6 bg-gradient-to-br from-brand-surface/80 to-pink-500/[0.03] border-pink-500/15">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-3 bg-pink-500/10 border border-pink-500/20 text-pink-400 rounded-xl">
+              <ShoppingCart size={20} />
+            </span>
+            <span className={`text-[10px] font-mono py-0.5 px-2 rounded-full font-bold uppercase tracking-wider ${
+              abandonedCartsCount > 0 ? 'bg-red-500/10 border border-red-500/20 text-red-500 animate-pulse' : 'bg-gray-500/10 border border-gray-500/20 text-gray-500'
+            }`}>
+              Alerta de Perda
+            </span>
+          </div>
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 font-sans">Carrinhos Abandonados</p>
+          <p className="text-2xl font-bold text-white font-display">{abandonedCartsCount} perdidos</p>
+          <span className="text-[10px] text-pink-400/90 block mt-1 font-mono">Volume retido: Kz {abandonedCartsTotalValue.toLocaleString()}</span>
+        </div>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="premium-card p-8">
-          <h3 className="text-xl font-bold mb-8">Evolução de Vendas</h3>
-          <div className="h-[300px]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Charts: Trend Analysis */}
+        <div className="premium-card p-6 lg:col-span-2 border-brand-border/40">
+          <h3 className="text-lg font-bold text-white font-display mb-6">Faturamento vs. Carrinhos Abandonados</h3>
+          <div className="h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
+              <AreaChart data={graphData}>
                 <defs>
-                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0066FF" stopOpacity={0.3}/>
+                  <linearGradient id="colorSalesAd" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0066FF" stopOpacity={0.25}/>
                     <stop offset="95%" stopColor="#0066FF" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" vertical={false} />
-                <XAxis dataKey="name" stroke="#555" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#555" fontSize={12} tickLine={false} axisLine={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1F1F1F" vertical={false} />
+                <XAxis dataKey="name" stroke="#555" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="#555" fontSize={11} tickLine={false} axisLine={false} />
                 <Tooltip 
-                  contentStyle={{ background: '#1E1E1E', border: '1px solid #2A2A2A', borderRadius: '12px' }}
-                  itemStyle={{ color: '#0066FF' }}
+                  contentStyle={{ background: '#121212', border: '1px solid #2A2A2A', borderRadius: '12px' }}
+                  labelStyle={{ color: '#aaa', fontFamily: 'monospace' }}
+                  itemStyle={{ fontSize: '11px', fontFamily: 'monospace' }}
                 />
-                <Area type="monotone" dataKey="sales" stroke="#0066FF" strokeWidth={3} fillOpacity={1} fill="url(#colorSales)" />
+                <Area type="monotone" name="Faturamento (Kz)" dataKey="Faturamento (Kz)" stroke="#0066FF" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSalesAd)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="premium-card p-8">
-          <h3 className="text-xl font-bold mb-8">Performance por Categoria</h3>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2A2A2A" vertical={false} />
-                <XAxis dataKey="name" stroke="#555" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="#555" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip 
-                  contentStyle={{ background: '#1E1E1E', border: '1px solid #2A2A2A', borderRadius: '12px' }}
-                />
-                <Bar dataKey="users" fill="#0066FF" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+        {/* Payment Methods and count */}
+        <div className="premium-card p-6 border-brand-border/40 flex flex-col justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-white font-display flex items-center gap-2 mb-1">
+              <CreditCard size={18} className="text-brand-blue" /> Métodos de Pagamento
+            </h3>
+            <p className="text-xs text-gray-500 font-sans mb-6">Canal de fecho com número de vendas em cada método.</p>
+            
+            <div className="space-y-4">
+              {Object.entries(paymentDistribution).map(([method, data]) => {
+                const percentage = totalFaturamento > 0 ? Math.round((data.value / totalFaturamento) * 100) : 0;
+                
+                return (
+                  <div key={method} className="space-y-1.5 p-3 rounded-xl bg-brand-dark/40 border border-brand-border/30">
+                    <div className="flex justify-between items-center text-xs font-mono">
+                      <span className="text-white font-semibold truncate max-w-[200px]">{method}</span>
+                      <span className="text-brand-blue font-bold">{data.count} vendas</span>
+                    </div>
+                    
+                    <div className="w-full bg-brand-dark h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-brand-blue h-full rounded-full transition-all duration-500" 
+                        style={{ width: `${Math.max(4, percentage)}%` }}
+                      />
+                    </div>
+                    
+                    <div className="flex justify-between items-center text-[10px] font-mono text-gray-500">
+                      <span>Volume: Kz {data.value.toLocaleString()}</span>
+                      <span>{percentage}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          
+          <div className="pt-4 border-t border-brand-border/40 mt-4 text-[10px] text-gray-500 font-sans text-center">
+            Informação sincronizada com as faturas dos clientes Angolanos.
           </div>
         </div>
+      </div>
+
+      {/* Recover Abandoned Carts Table Block */}
+      <div className="premium-card p-6 border-brand-border/40">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-xl font-bold font-display text-white">Visualizador de Carrinhos Abandonados</h2>
+            <p className="text-xs text-gray-400 font-sans mt-0.5">Contactos capturados na abertura do checkout. Prossiga para recuperar a venda.</p>
+          </div>
+          <span className="font-mono text-xs font-bold text-pink-400 py-1 px-3 rounded-full bg-pink-500/10 border border-pink-500/20">
+            {abandonedCarts.filter(c => c.status === 'pending').length} Carrinhos Pendentes
+          </span>
+        </div>
+
+        {abandonedCarts.length === 0 ? (
+          <div className="text-center py-12 border border-dashed border-brand-border/40 rounded-2xl bg-brand-dark/20">
+            <ShoppingBag className="mx-auto text-gray-600 mb-3" size={32} />
+            <p className="text-sm font-sans text-gray-400">Nenhum carrinho abandonado registado até ao momento.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-sans text-sm">
+              <thead>
+                <tr className="border-b border-brand-border/60 text-xs font-bold uppercase tracking-wider text-gray-500">
+                  <th className="pb-3 text-left">Utilizador / Contacto</th>
+                  <th className="pb-3 text-left">Produto Tentado</th>
+                  <th className="pb-3 text-left">Valor do Item</th>
+                  <th className="pb-3 text-left">Abandono em</th>
+                  <th className="pb-3 text-center">Estado</th>
+                  <th className="pb-3 text-right">Ação de Recuperação</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-brand-border/40">
+                {abandonedCarts.map((cart) => (
+                  <tr key={cart.id} className="hover:bg-brand-surface/30 transition-colors">
+                    <td className="py-4 pr-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-brand-blue/10 flex items-center justify-center text-brand-blue font-bold font-mono">
+                          {cart.customer_name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <span className="font-bold text-white block">{cart.customer_name}</span>
+                          <span className="text-xs font-mono text-gray-500 block">{cart.customer_email}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-4 pr-3">
+                      <div className="flex items-center gap-2">
+                        {cart.product_image && (
+                          <img src={cart.product_image} alt="" className="w-8 h-8 rounded object-cover bg-brand-dark" />
+                        )}
+                        <span className="font-medium text-gray-200 block truncate max-w-[180px]">{cart.product_name}</span>
+                      </div>
+                    </td>
+                    <td className="py-4 pr-3 font-mono font-semibold text-white">
+                      Kz {Number(cart.product_price).toLocaleString()}
+                    </td>
+                    <td className="py-4 pr-1 text-xs text-gray-400 font-mono">
+                      {new Date(cart.created_at).toLocaleString('pt-AO')}
+                    </td>
+                    <td className="py-4 text-center">
+                      <span className={`inline-block py-0.5 px-2 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider ${
+                        cart.status === 'recovered' 
+                          ? 'bg-green-500/10 border border-green-500/20 text-green-500' 
+                          : 'bg-red-500/10 border border-red-500/20 text-red-500 animate-pulse'
+                      }`}>
+                        {cart.status === 'recovered' ? 'Recuperado' : 'Pendente'}
+                      </span>
+                    </td>
+                    <td className="py-4 text-right">
+                      {cart.status === 'recovered' ? (
+                        <div className="inline-flex items-center gap-1.5 text-xs text-green-500 font-bold font-mono bg-green-500/5 px-3 py-1.5 rounded-full border border-green-500/10">
+                          <Check size={12} /> Email Enviado
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleRecoverCart(cart.id, cart.customer_email)}
+                          className="premium-button p-2 text-xs font-bold text-brand-blue bg-brand-blue/10 border border-brand-blue/20 hover:bg-brand-blue hover:text-white cursor-pointer px-4.5 rounded-xl font-mono flex items-center gap-1.5 ml-auto uppercase tracking-wide"
+                        >
+                          <Mail size={12} /> Recuperar
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

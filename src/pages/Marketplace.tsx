@@ -6,6 +6,7 @@ import { Search, MapPin, Filter, ShoppingCart, Star, X, Truck, Wallet, MessageSq
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { addAbandonedCart, seedAbandonedCartsIfEmpty } from '../lib/abandonedCarts';
 
 export default function Marketplace() {
   const { profile, user } = useAuth();
@@ -24,6 +25,7 @@ export default function Marketplace() {
   const [checkoutPhone, setCheckoutPhone] = useState('');
   const [checkoutReference, setCheckoutReference] = useState('');
   const [checkoutDeliveryDay, setCheckoutDeliveryDay] = useState('Segunda-feira');
+  const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState('Pagamento no Ato de Entrega');
 
   useEffect(() => {
     fetchProducts();
@@ -48,6 +50,11 @@ export default function Marketplace() {
 
       if (error) throw error;
       setProducts(data || []);
+      
+      // Auto-populate seed values of abandoned carts if empty
+      if (data && data.length > 0) {
+        seedAbandonedCartsIfEmpty(data);
+      }
     } catch (error: any) {
       toast.error('Erro ao carregar produtos');
     } finally {
@@ -58,6 +65,30 @@ export default function Marketplace() {
   const fetchNeighborhoods = async () => {
     const { data } = await supabase.from('delivery_fees').select('*');
     setNeighborhoods(data || []);
+  };
+
+  const closeCheckoutModal = (isAbandoned: boolean) => {
+    if (isAbandoned && buyingProduct) {
+      addAbandonedCart(
+        user?.id || null,
+        checkoutName || profile?.name || 'Comprador Anónimo',
+        user?.email || 'interessado@angolamarket.ao',
+        {
+          id: buyingProduct.id,
+          name: buyingProduct.name,
+          price: Number(buyingProduct.price),
+          image_url: buyingProduct.image_url || undefined,
+          producer_id: buyingProduct.producer_id
+        },
+        localStorage.getItem('affiliate_ref')
+      );
+    }
+    setBuyingProduct(null);
+    setSelectedNeighborhoodId('');
+    setCheckoutPhone('');
+    setCheckoutReference('');
+    setCheckoutDeliveryDay('Segunda-feira');
+    setCheckoutPaymentMethod('Pagamento no Ato de Entrega');
   };
 
   const handleOrder = async (e: React.FormEvent) => {
@@ -85,8 +116,8 @@ export default function Marketplace() {
       const total = Number(buyingProduct.price) + Number(delivery_fee);
       const affiliate_id = localStorage.getItem('affiliate_ref');
 
-      // String composta com os detalhes completos do agendamento
-      const compositeNeighborhood = `${neighborhood?.neighborhood} | Ref: ${checkoutReference.trim()} | Tel: ${checkoutPhone.trim()} | Nome: ${checkoutName.trim()} | Dia: ${checkoutDeliveryDay}`;
+      // String composta com os detalhes completos do agendamento e pagamento
+      const compositeNeighborhood = `${neighborhood?.neighborhood} | Ref: ${checkoutReference.trim()} | Tel: ${checkoutPhone.trim()} | Nome: ${checkoutName.trim()} | Dia: ${checkoutDeliveryDay} | Payment: ${checkoutPaymentMethod}`;
 
       const { error } = await supabase.from('orders').insert([{
         customer_id: user.id,
@@ -107,16 +138,12 @@ export default function Marketplace() {
           </div>
           <div>
             <p className="font-bold">Encomenda Realizada!</p>
-            <p className="text-xs text-gray-400">Pague Kz {total.toLocaleString()} no ato da entrega ({checkoutDeliveryDay}).</p>
+            <p className="text-xs text-gray-400">Pague Kz {total.toLocaleString()} via {checkoutPaymentMethod} ({checkoutDeliveryDay}).</p>
           </div>
         </div>
       ), { duration: 5000 });
 
-      setBuyingProduct(null);
-      setSelectedNeighborhoodId('');
-      setCheckoutPhone('');
-      setCheckoutReference('');
-      setCheckoutDeliveryDay('Segunda-feira');
+      closeCheckoutModal(false);
     } catch (error: any) {
       toast.error('Erro ao processar encomenda: ' + error.message);
     } finally {
@@ -201,7 +228,7 @@ export default function Marketplace() {
               <div className="p-6 border-b border-brand-border flex items-center justify-between bg-brand-dark">
                 <h3 className="text-xl font-bold">Finalizar Compra</h3>
                 <button 
-                  onClick={() => setBuyingProduct(null)}
+                  onClick={() => closeCheckoutModal(true)}
                   className="p-2 hover:bg-brand-surface rounded-lg transition-colors"
                 >
                   <X />
@@ -275,21 +302,36 @@ export default function Marketplace() {
                   />
                 </div>
 
-                <div className="space-y-2 text-left">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Agendar Dia de Entrega (Segunda a Segunda)</label>
-                  <select
-                    className="premium-input w-full bg-brand-dark text-white text-sm py-2.5 px-3 cursor-pointer"
-                    value={checkoutDeliveryDay}
-                    onChange={(e) => setCheckoutDeliveryDay(e.target.value)}
-                  >
-                    <option value="Segunda-feira">Segunda-feira</option>
-                    <option value="Terça-feira">Terça-feira</option>
-                    <option value="Quarta-feira">Quarta-feira</option>
-                    <option value="Quinta-feira">Quinta-feira</option>
-                    <option value="Sexta-feira">Sexta-feira</option>
-                    <option value="Sábado">Sábado</option>
-                    <option value="Domingo">Domingo</option>
-                  </select>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2 text-left">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Dia de Entrega</label>
+                    <select
+                      className="premium-input w-full bg-brand-dark text-white text-sm py-2.5 px-3 cursor-pointer"
+                      value={checkoutDeliveryDay}
+                      onChange={(e) => setCheckoutDeliveryDay(e.target.value)}
+                    >
+                      <option value="Segunda-feira">Segunda-feira</option>
+                      <option value="Terça-feira">Terça-feira</option>
+                      <option value="Quarta-feira">Quarta-feira</option>
+                      <option value="Quinta-feira">Quinta-feira</option>
+                      <option value="Sexta-feira">Sexta-feira</option>
+                      <option value="Sábado">Sábado</option>
+                      <option value="Domingo">Domingo</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2 text-left">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Forma de Pagamento</label>
+                    <select
+                      className="premium-input w-full bg-brand-dark text-white text-sm py-2.5 px-3 cursor-pointer"
+                      value={checkoutPaymentMethod}
+                      onChange={(e) => setCheckoutPaymentMethod(e.target.value)}
+                    >
+                      <option value="Pagamento no Ato de Entrega">Pagamento no Ato (Dinheiro)</option>
+                      <option value="Multicaixa Express">Multicaixa Express</option>
+                      <option value="Transferência Bancária">Transferência Bancária</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div className="bg-brand-dark p-6 rounded-2xl space-y-3">
@@ -310,7 +352,7 @@ export default function Marketplace() {
 
                 <div className="flex items-center gap-3 text-xs text-yellow-500 bg-yellow-500/10 p-4 rounded-xl">
                   <Truck size={16} />
-                  <span>Pagamento via **Cash on Delivery**. Receba a sua encomenda e pague ao estafeta.</span>
+                  <span>Método: **{checkoutPaymentMethod}**. Finalize e confirme o agendamento da sua entrega em Angola.</span>
                 </div>
 
                 <button 
