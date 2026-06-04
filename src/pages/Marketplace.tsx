@@ -50,11 +50,6 @@ export default function Marketplace() {
 
       if (error) throw error;
       setProducts(data || []);
-      
-      // Auto-populate seed values of abandoned carts if empty
-      if (data && data.length > 0) {
-        seedAbandonedCartsIfEmpty(data);
-      }
     } catch (error: any) {
       toast.error('Erro ao carregar produtos');
     } finally {

@@ -18,7 +18,9 @@ const STORAGE_KEY = 'angola_market_abandoned_carts';
 export function getAbandonedCarts(): AbandonedCart[] {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    const parsed = data ? JSON.parse(data) : [];
+    // Filtrar dados mockados/semeados para que apenas carrinhos reais capturados apareçam
+    return Array.isArray(parsed) ? parsed.filter((c: any) => c && c.id && !c.id.startsWith('seed_cart_')) : [];
   } catch (e) {
     console.error('Error parsing abandoned carts', e);
     return [];
@@ -85,45 +87,5 @@ export function recoverAbandonedCart(id: string): boolean {
 }
 
 export function seedAbandonedCartsIfEmpty(products: any[]) {
-  if (products.length === 0) return;
-  const current = getAbandonedCarts();
-  if (current.length > 0) return;
-
-  const seedNames = [
-    { name: 'Bernardo Silva', email: 'bernardo.silva@hotmail.com' },
-    { name: 'Ana Carolina', email: 'carolina.ana@gmail.com' },
-    { name: 'Mateus Gaspar', email: 'mateus.gaspar99@outlook.com' },
-    { name: 'Isabel Lourenço', email: 'isabel.lourenco.ao@gmail.com' },
-    { name: 'João Manuel', email: 'joao.manuel@angola.net' }
-  ];
-
-  const seeded: AbandonedCart[] = [];
-  
-  // Create 3-5 random abandoned carts matching real products
-  const count = Math.min(4, products.length);
-  for (let i = 0; i < count; i++) {
-    const product = products[i];
-    const person = seedNames[i % seedNames.length];
-    
-    // Distribute across the last few days
-    const date = new Date();
-    date.setHours(date.getHours() - (i * 14 + 5));
-
-    seeded.push({
-      id: `seed_cart_${i}_${Math.random().toString(36).substr(2, 5)}`,
-      user_id: null,
-      customer_name: person.name,
-      customer_email: person.email,
-      product_id: product.id,
-      product_name: product.name,
-      product_price: Number(product.price),
-      product_image: product.image_url,
-      producer_id: product.producer_id,
-      affiliate_id: i % 2 === 0 ? 'affiliate_example_id' : null, // alternate affiliate referral
-      created_at: date.toISOString(),
-      status: 'pending'
-    });
-  }
-
-  saveAbandonedCarts(seeded);
+  // Desativado para termos realismo total com capturas reais
 }
