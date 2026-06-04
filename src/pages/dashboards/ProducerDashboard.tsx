@@ -17,10 +17,12 @@ import {
   Upload,
   X,
   Calculator,
-  AlertCircle
+  AlertCircle,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
+import ProfileTab from '../../components/ProfileTab';
 
 export default function ProducerDashboard() {
   const { profile } = useAuth();
@@ -28,7 +30,7 @@ export default function ProducerDashboard() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [isAddingProduct, setIsAddingProduct] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'orders' | 'wallet'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'orders' | 'wallet' | 'profile'>('overview');
 
   useEffect(() => {
     if (profile) {
@@ -65,6 +67,7 @@ export default function ProducerDashboard() {
             { id: 'products', label: 'Meus Produtos', icon: <Package size={20} /> },
             { id: 'orders', label: 'Encomendas', icon: <ShoppingCart size={20} /> },
             { id: 'wallet', label: 'Minha Carteira', icon: <WalletIcon size={20} /> },
+            { id: 'profile', label: 'O Meu Perfil', icon: <User size={20} /> },
           ].map((item) => (
             <button
               key={item.id}
@@ -100,6 +103,7 @@ export default function ProducerDashboard() {
               />
             )}
             {activeTab === 'wallet' && <WalletTab wallet={wallet} refresh={fetchWallet} />}
+            {activeTab === 'profile' && <ProfileTab />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -214,33 +218,68 @@ function ProductsTab({ products, isAdding, setIsAdding, refresh }: any) {
     });
   };
 
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        const MAX_DIM = 800;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6));
+        } else {
+          resolve(event.target?.result as string || '');
+        }
+      };
+      img.onerror = () => {
+        reject(new Error('Imagem inválida.'));
+      };
+      img.src = event.target?.result as string || '';
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
   const addFiles = (files: File[]) => {
     if (imageFiles.length + files.length > 10) {
       toast.error('O limite máximo é de 10 imagens.');
       return;
     }
 
-    files.forEach((file) => {
+    files.forEach(async (file) => {
       if (!file.type.startsWith('image/')) {
         toast.error('Por favor, carregue apenas imagens.');
         return;
       }
-      // Check file size (limit base64 encoding storage density space to roughly 3.5MB each)
-      if (file.size > 3.5 * 1024 * 1024) {
-        toast.error('Cada imagem não pode exceder 3.5MB.');
-        return;
-      }
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setImageFiles((prev) => {
-            if (prev.length >= 10) return prev;
-            return [...prev, reader.result as string];
-          });
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressedBase64 = await compressImage(file);
+        setImageFiles((prev) => {
+          if (prev.length >= 10) return prev;
+          return [...prev, compressedBase64];
+        });
+      } catch (err: any) {
+        toast.error('Erro ao operar imagem: ' + err.message);
+      }
     });
   };
 

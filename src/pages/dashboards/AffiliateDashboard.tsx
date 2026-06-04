@@ -11,14 +11,16 @@ import {
   ExternalLink,
   Copy,
   Trophy,
-  Wallet as WalletIcon
+  Wallet as WalletIcon,
+  User
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
+import ProfileTab from '../../components/ProfileTab';
 
 export default function AffiliateDashboard() {
   const { profile } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'wallet' | 'ranking'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'wallet' | 'ranking' | 'profile'>('overview');
   const [products, setProducts] = useState<Product[]>([]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
 
@@ -48,6 +50,7 @@ export default function AffiliateDashboard() {
             { id: 'marketplace', label: 'Produtos', icon: <List size={20} /> },
             { id: 'wallet', label: 'Minha Carteira', icon: <WalletIcon size={20} /> },
             { id: 'ranking', label: 'Ranking', icon: <Trophy size={20} /> },
+            { id: 'profile', label: 'O Meu Perfil', icon: <User size={20} /> },
           ].map((item) => (
             <button
               key={item.id}
@@ -75,6 +78,7 @@ export default function AffiliateDashboard() {
           {activeTab === 'marketplace' && <ProductsTab products={products} />}
           {activeTab === 'wallet' && <WalletTab wallet={wallet} />}
           {activeTab === 'ranking' && <RankingTab />}
+          {activeTab === 'profile' && <ProfileTab />}
         </motion.div>
       </main>
     </div>

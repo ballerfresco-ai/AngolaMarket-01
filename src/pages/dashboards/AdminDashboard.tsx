@@ -17,7 +17,9 @@ import {
   Wallet as WalletIcon,
   Eye,
   X,
-  Calendar
+  Calendar,
+  User,
+  ShoppingCart
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -34,18 +36,21 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { Product, Withdrawal, Profile, DeliveryFee, Wallet } from '../../types/database';
+import ProfileTab from '../../components/ProfileTab';
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'withdrawals' | 'users' | 'delivery' | 'rankings' | 'wallet'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'withdrawals' | 'users' | 'delivery' | 'rankings' | 'wallet' | 'orders' | 'profile'>('overview');
 
   const menuItems = [
     { id: 'overview', label: 'Visão Geral', icon: <BarChart3 size={20} /> },
     { id: 'products', label: 'Produtos', icon: <Package size={20} /> },
+    { id: 'orders', label: 'Encomendas', icon: <ShoppingCart size={20} /> },
     { id: 'withdrawals', label: 'Levantamentos', icon: <DollarSign size={20} /> },
     { id: 'users', label: 'Utilizadores', icon: <Users size={20} /> },
     { id: 'delivery', label: 'Taxas de Entrega', icon: <MapPin size={20} /> },
     { id: 'rankings', label: 'Rankings', icon: <Trophy size={20} /> },
     { id: 'wallet', label: 'Minha Carteira', icon: <WalletIcon size={20} /> },
+    { id: 'profile', label: 'O Meu Perfil', icon: <User size={20} /> },
   ];
 
   return (
@@ -84,11 +89,13 @@ export default function AdminDashboard() {
           >
             {activeTab === 'overview' && <OverviewTab />}
             {activeTab === 'products' && <ProductsTab />}
+            {activeTab === 'orders' && <OrdersTab />}
             {activeTab === 'withdrawals' && <WithdrawalsTab />}
             {activeTab === 'users' && <UsersTab />}
             {activeTab === 'delivery' && <DeliveryTab />}
             {activeTab === 'rankings' && <RankingsTab />}
             {activeTab === 'wallet' && <AdminWalletTab />}
+            {activeTab === 'profile' && <ProfileTab />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -985,3 +992,268 @@ function AdminWalletTab() {
     </div>
   );
 }
+
+function OrdersTab() {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>('all');
+
+  const fetchOrders = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          products:product_id (*),
+          customer:customer_id (name, email),
+          affiliate:affiliate_id (name, email)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setOrders(data || []);
+    } catch (err: any) {
+      toast.error('Erro ao buscar encomendas: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  const handleUpdateOrderStatus = async (order: any, newStatus: string) => {
+    try {
+      if (newStatus === 'delivered' && order.status !== 'delivered') {
+        const product = order.products;
+        if (!product) {
+          throw new Error('Produto não encontrado.');
+        }
+
+        const priceNum = Number(product.price);
+        const affiliateCommPercent = Number(product.affiliate_commission) || 0;
+        const platformCommPercent = 10;
+
+        const platformFee = priceNum * (platformCommPercent / 100);
+        const affiliateReward = affiliateCommPercent > 0 && order.affiliate_id ? priceNum * (affiliateCommPercent / 100) : 0;
+        const producerNetEarnings = Math.max(0, priceNum - platformFee - affiliateReward);
+
+        // 1. Pay Producer
+        const { data: producerWallet, error: pWalletErr } = await supabase
+          .from('wallets')
+          .select('*')
+          .eq('user_id', product.producer_id)
+          .single();
+
+        if (pWalletErr && pWalletErr.code !== 'PGRST116') throw pWalletErr;
+
+        const newPBalance = (producerWallet ? Number(producerWallet.balance) : 0) + producerNetEarnings;
+
+        if (producerWallet) {
+          const { error: pUpErr } = await supabase
+            .from('wallets')
+            .update({ balance: newPBalance })
+            .eq('id', producerWallet.id);
+          if (pUpErr) throw pUpErr;
+        } else {
+          const { error: pInsErr } = await supabase
+            .from('wallets')
+            .insert([{ user_id: product.producer_id, balance: newPBalance }]);
+          if (pInsErr) throw pInsErr;
+        }
+
+        // 2. Pay Affiliate
+        if (affiliateReward > 0 && order.affiliate_id) {
+          const { data: affiliateWallet, error: aWalletErr } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', order.affiliate_id)
+            .single();
+
+          if (aWalletErr && aWalletErr.code !== 'PGRST116') throw aWalletErr;
+
+          const newABalance = (affiliateWallet ? Number(affiliateWallet.balance) : 0) + affiliateReward;
+
+          if (affiliateWallet) {
+            const { error: aUpErr } = await supabase
+              .from('wallets')
+              .update({ balance: newABalance })
+              .eq('id', affiliateWallet.id);
+            if (aUpErr) throw aUpErr;
+          } else {
+            const { error: aInsErr } = await supabase
+              .from('wallets')
+              .insert([{ user_id: order.affiliate_id, balance: newABalance }]);
+            if (aInsErr) throw aInsErr;
+          }
+        }
+        
+        toast.success('Valores creditados com sucesso nas carteiras!');
+      }
+
+      const { error: statusErr } = await supabase
+        .from('orders')
+        .update({ status: newStatus })
+        .eq('id', order.id);
+
+      if (statusErr) throw statusErr;
+
+      toast.success(`Estado atualizado com êxito para: ${
+        newStatus === 'delivered' ? 'Concluído' :
+        newStatus === 'out_for_delivery' ? 'Em andamento' :
+        newStatus === 'cancelled' ? 'Cancelada' : 'Pendente'
+      }`);
+      fetchOrders();
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao atualizar estado do pedido: ' + err.message);
+    }
+  };
+
+  const filteredOrders = orders.filter((o) => {
+    if (filter === 'all') return true;
+    if (filter === 'pending') return o.status === 'pending';
+    if (filter === 'out_for_delivery') return o.status === 'out_for_delivery';
+    if (filter === 'delivered') return o.status === 'delivered';
+    if (filter === 'cancelled') return o.status === 'cancelled';
+    return true;
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold font-display text-white">Gerenciamento de Encomendas</h2>
+          <p className="text-sm text-gray-400 font-sans mt-0.5">Gerencie os pedidos, altere o status das entregas e credite comissões quando o pedido for concluído.</p>
+        </div>
+        <button
+          onClick={fetchOrders}
+          className="premium-button-secondary py-2 px-4 text-xs font-bold uppercase tracking-wider cursor-pointer font-display"
+        >
+          Sincronizar Lista
+        </button>
+      </div>
+
+      {/* Filter Options */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { id: 'all', label: 'Todas' },
+          { id: 'pending', label: 'Pendentes' },
+          { id: 'out_for_delivery', label: 'Em Andamento' },
+          { id: 'delivered', label: 'Concluídas' },
+          { id: 'cancelled', label: 'Canceladas' },
+        ].map((btn) => (
+          <button
+            key={btn.id}
+            onClick={() => setFilter(btn.id)}
+            className={`py-1.5 px-4 rounded-full text-xs font-bold transition-all uppercase tracking-wider cursor-pointer border ${
+              filter === btn.id 
+                ? 'bg-brand-blue border-brand-blue text-white shadow-lg shadow-brand-blue/20' 
+                : 'border-brand-border/40 text-gray-400 hover:text-white hover:border-brand-blue/30'
+            }`}
+          >
+            {btn.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="premium-card h-28 animate-pulse border border-brand-border/25" />
+          ))}
+        </div>
+      ) : filteredOrders.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4">
+          {filteredOrders.map((order) => {
+            const product = order.products || {};
+            const customer = order.customer || {};
+            const affiliate = order.affiliate || {};
+
+            return (
+              <div 
+                key={order.id} 
+                className="premium-card p-6 border border-brand-border/40 bg-brand-dark/20 rounded-2xl flex flex-col lg:flex-row gap-6 justify-between lg:items-center"
+              >
+                <div className="flex items-start gap-4">
+                  {product.image_url ? (
+                    <img 
+                      src={product.image_url} 
+                      alt={product.name} 
+                      className="w-16 h-16 object-cover rounded-xl bg-brand-black" 
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-brand-black flex items-center justify-center text-gray-500">
+                      Sem img
+                    </div>
+                  )}
+                  <div>
+                    <h4 className="font-bold text-lg text-white font-display mb-1">{product.name || 'Produto Não Encontrado'}</h4>
+                    <p className="text-xs text-gray-400 font-sans">
+                      Cliente: <span className="font-semibold text-gray-300">{customer.name || 'Desconhecido'}</span> ({customer.email || 's/ email'})
+                    </p>
+                    {order.affiliate_id && (
+                      <p className="text-xs text-brand-blue font-sans mt-0.5">
+                        Afiliado: <span className="font-semibold">{affiliate.name || 'Desconhecido'}</span> ({affiliate.email || 's/ email'})
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-4 mt-2 text-[11px] text-gray-500 font-mono">
+                      <span>Bairro: {order.neighborhood}</span>
+                      <span>•</span>
+                      <span>Entrega: Kz {Number(order.delivery_fee).toLocaleString()}</span>
+                      <span>•</span>
+                      <span>Criado em: {new Date(order.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row lg:flex-col sm:items-center lg:items-end gap-4 border-t border-brand-border/30 pt-4 lg:pt-0 lg:border-t-0">
+                  <div className="text-left sm:text-right">
+                    <span className="text-xs text-gray-500 uppercase font-bold tracking-wider block mb-0.5 font-sans">Total Cobrado</span>
+                    <span className="text-2xl font-bold font-display text-brand-blue">
+                      Kz {Number(order.total).toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider py-1 px-3 rounded-full mr-2 ${
+                      order.status === 'delivered' ? 'bg-green-500/10 text-green-400 border border-green-500/30' :
+                      order.status === 'out_for_delivery' ? 'bg-blue-500/10 text-brand-blue border border-brand-blue/30' :
+                      order.status === 'cancelled' ? 'bg-red-500/10 text-red-400 border border-red-500/30' :
+                      'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30'
+                    }`}>
+                      {order.status === 'delivered' ? 'Concluído' :
+                       order.status === 'out_for_delivery' ? 'Em andamento' :
+                       order.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                    </span>
+
+                    {/* Action Selector */}
+                    {order.status !== 'delivered' && (
+                      <select
+                        onChange={(e) => handleUpdateOrderStatus(order, e.target.value)}
+                        value={order.status}
+                        className="premium-input text-xs py-1.5 px-3 bg-brand-surface border-brand-border/60 text-white cursor-pointer"
+                      >
+                        <option value="pending">Pendente</option>
+                        <option value="out_for_delivery">Em Andamento</option>
+                        <option value="delivered">Marcar Concluído ✓</option>
+                        <option value="cancelled">Marcar Cancelado ✗</option>
+                      </select>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="premium-card py-16 text-center border border-brand-border/25 bg-brand-dark/10 rounded-2xl">
+          <p className="text-gray-400 font-sans">Nenhuma encomenda encontrada com este status.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+

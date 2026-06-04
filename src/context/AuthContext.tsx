@@ -11,6 +11,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   isAdminExist: boolean;
   isConfigured: boolean;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,6 +22,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdminExist, setIsAdminExist] = useState(false);
+
+  const refreshProfile = async () => {
+    if (user) {
+      await fetchProfile(user.id);
+    }
+  };
 
   useEffect(() => {
     if (!isConfigured) {
@@ -94,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, profile, session, loading, signOut, isAdminExist, isConfigured }}>
+    <AuthContext.Provider value={{ user, profile, session, loading, signOut, isAdminExist, isConfigured, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );
