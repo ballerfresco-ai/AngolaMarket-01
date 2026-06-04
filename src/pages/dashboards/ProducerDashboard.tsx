@@ -46,8 +46,48 @@ export default function ProducerDashboard() {
   };
 
   const fetchWallet = async () => {
-    const { data } = await supabase.from('wallets').select('*').eq('user_id', profile?.id).single();
-    setWallet(data);
+    if (!profile) return;
+    try {
+      const { data: completedOrders } = await supabase
+        .from('orders')
+        .select('*, products!inner(*)')
+        .eq('status', 'delivered')
+        .eq('products.producer_id', profile.id);
+
+      const { data: withdrawals } = await supabase
+        .from('withdrawals')
+        .select('*')
+        .eq('user_id', profile.id);
+
+      let totalEarnings = 0;
+      if (completedOrders) {
+        completedOrders.forEach((order: any) => {
+          const priceNum = Number(order.products.price);
+          const affiliateCommPercent = Number(order.products.affiliate_commission) || 0;
+          const platformFee = priceNum * 0.10;
+          const affiliateReward = affiliateCommPercent > 0 && order.affiliate_id ? priceNum * (affiliateCommPercent / 100) : 0;
+          const net = Math.max(0, priceNum - platformFee - affiliateReward);
+          totalEarnings += net;
+        });
+      }
+
+      let totalWithdrawn = 0;
+      if (withdrawals) {
+        withdrawals.forEach((wd: any) => {
+          totalWithdrawn += Number(wd.amount);
+        });
+      }
+
+      const balance = Math.max(0, totalEarnings - totalWithdrawn);
+      setWallet({
+        id: profile.id,
+        user_id: profile.id,
+        balance,
+        updated_at: new Date().toISOString()
+      } as any);
+    } catch (err) {
+      console.error("Failed to compute dynamic producer wallet balance:", err);
+    }
   };
 
   const fetchOrders = async () => {
@@ -206,7 +246,9 @@ function ProductsTab({ products, isAdding, setIsAdding, refresh }: any) {
     condition: 'novo' as 'novo' | 'usado',
     brand: '',
     category: 'Eletrónicos & Tecnologia',
-    subcategory: 'Telemóveis'
+    subcategory: 'Telemóveis',
+    phone1: '',
+    phone2: ''
   });
 
   const handleCategoryChange = (cat: string) => {
@@ -333,7 +375,9 @@ function compressImage(file: File): Promise<string> {
         condition: formData.condition,
         brand: formData.brand || null,
         category: formData.category,
-        subcategory: formData.subcategory
+        subcategory: formData.subcategory,
+        phone1: formData.phone1.trim(),
+        phone2: formData.phone2.trim()
       };
 
       const payload = {
@@ -364,7 +408,9 @@ function compressImage(file: File): Promise<string> {
         condition: 'novo',
         brand: '',
         category: 'Eletrónicos & Tecnologia',
-        subcategory: 'Telemóveis'
+        subcategory: 'Telemóveis',
+        phone1: '',
+        phone2: ''
       });
       setIsAdding(false);
       refresh();
@@ -568,10 +614,39 @@ function compressImage(file: File): Promise<string> {
                 </div>
               </div>
 
-              {/* Secção 4: Upload e remoção de até 10 imagens */}
+              {/* Secção: Contactos do Produtor */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-bold text-brand-blue uppercase tracking-wider border-b border-brand-border/40 pb-2">4. Contactos do Produtor (Obrigatório 2 Números)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Contacto de Telefone 1</label>
+                    <input 
+                      type="tel" 
+                      placeholder="Ex: 923 456 789"
+                      className="premium-input w-full" 
+                      value={formData.phone1}
+                      onChange={(e) => setFormData({...formData, phone1: e.target.value})}
+                      required 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">Contacto de Telefone 2</label>
+                    <input 
+                      type="tel" 
+                      placeholder="Ex: 912 345 678"
+                      className="premium-input w-full" 
+                      value={formData.phone2}
+                      onChange={(e) => setFormData({...formData, phone2: e.target.value})}
+                      required 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Secção 5: Upload e remoção de até 10 imagens */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center border-b border-brand-border/40 pb-2">
-                  <h3 className="text-sm font-bold text-brand-blue uppercase tracking-wider">4. Fotos do Produto</h3>
+                  <h3 className="text-sm font-bold text-brand-blue uppercase tracking-wider">5. Fotos do Produto</h3>
                   <span className={`text-xs font-bold ${imageFiles.length === 10 ? 'text-yellow-500' : 'text-gray-400'}`}>
                     {imageFiles.length} / 10 carregadas
                   </span>

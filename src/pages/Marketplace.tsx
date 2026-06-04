@@ -19,10 +19,23 @@ export default function Marketplace() {
   const [selectedNeighborhoodId, setSelectedNeighborhoodId] = useState<string>('');
   const [isOrdering, setIsOrdering] = useState(false);
 
+  // Novos campos para agendamento detalhado de encomendas de segunda a segunda
+  const [checkoutName, setCheckoutName] = useState('');
+  const [checkoutPhone, setCheckoutPhone] = useState('');
+  const [checkoutReference, setCheckoutReference] = useState('');
+  const [checkoutDeliveryDay, setCheckoutDeliveryDay] = useState('Segunda-feira');
+
   useEffect(() => {
     fetchProducts();
     fetchNeighborhoods();
   }, []);
+
+  // Preencher nome do cliente logado automaticamente ao abrir finalização de compra
+  useEffect(() => {
+    if (profile && buyingProduct) {
+      setCheckoutName(profile.name || '');
+    }
+  }, [profile, buyingProduct]);
 
   const fetchProducts = async () => {
     try {
@@ -60,6 +73,11 @@ export default function Marketplace() {
       return;
     }
 
+    if (!checkoutName.trim() || !checkoutPhone.trim() || !checkoutReference.trim()) {
+      toast.error('Por favor, preencha todos os campos de entrega obrigatórios.');
+      return;
+    }
+
     setIsOrdering(true);
     try {
       const neighborhood = neighborhoods.find(n => n.id.toString() === selectedNeighborhoodId);
@@ -67,12 +85,15 @@ export default function Marketplace() {
       const total = Number(buyingProduct.price) + Number(delivery_fee);
       const affiliate_id = localStorage.getItem('affiliate_ref');
 
+      // String composta com os detalhes completos do agendamento
+      const compositeNeighborhood = `${neighborhood?.neighborhood} | Ref: ${checkoutReference.trim()} | Tel: ${checkoutPhone.trim()} | Nome: ${checkoutName.trim()} | Dia: ${checkoutDeliveryDay}`;
+
       const { error } = await supabase.from('orders').insert([{
         customer_id: user.id,
         product_id: buyingProduct.id,
         affiliate_id: affiliate_id || null,
         status: 'pending',
-        neighborhood: neighborhood?.neighborhood || 'Desconhecido',
+        neighborhood: compositeNeighborhood,
         delivery_fee,
         total
       }]);
@@ -86,13 +107,16 @@ export default function Marketplace() {
           </div>
           <div>
             <p className="font-bold">Encomenda Realizada!</p>
-            <p className="text-xs text-gray-400">Pague Kz {total.toLocaleString()} no ato da entrega.</p>
+            <p className="text-xs text-gray-400">Pague Kz {total.toLocaleString()} no ato da entrega ({checkoutDeliveryDay}).</p>
           </div>
         </div>
       ), { duration: 5000 });
 
       setBuyingProduct(null);
       setSelectedNeighborhoodId('');
+      setCheckoutPhone('');
+      setCheckoutReference('');
+      setCheckoutDeliveryDay('Segunda-feira');
     } catch (error: any) {
       toast.error('Erro ao processar encomenda: ' + error.message);
     } finally {
@@ -195,13 +219,13 @@ export default function Marketplace() {
 
                 <div className="space-y-4">
                   <label className="block text-sm font-medium text-gray-400">Selecione o Bairro de Entrega</label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 max-h-40 overflow-y-auto pr-1">
                     {neighborhoods.map(n => (
                       <button
                         type="button"
                         key={n.id}
                         onClick={() => setSelectedNeighborhoodId(n.id.toString())}
-                        className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${
                           selectedNeighborhoodId === n.id.toString()
                             ? 'bg-brand-blue/10 border-brand-blue text-brand-blue'
                             : 'bg-brand-dark border-brand-border text-gray-500 hover:border-brand-border/50'
@@ -212,6 +236,60 @@ export default function Marketplace() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Novos campos de entrega detalhados */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2 text-left">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Nome de Contacto</label>
+                    <input
+                      type="text"
+                      className="premium-input w-full text-white text-sm"
+                      placeholder="Nome de quem recebe"
+                      value={checkoutName}
+                      onChange={(e) => setCheckoutName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2 text-left">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Telemóvel de Contacto</label>
+                    <input
+                      type="tel"
+                      className="premium-input w-full text-white text-sm"
+                      placeholder="Ex: 923456789"
+                      value={checkoutPhone}
+                      onChange={(e) => setCheckoutPhone(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-left">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Referência do Bairro detalhadamente</label>
+                  <textarea
+                    className="premium-input w-full h-16 min-h-[64px] text-white text-sm py-2 px-3"
+                    placeholder="Especifique rua, cor de casa ou ponto de referência..."
+                    value={checkoutReference}
+                    onChange={(e) => setCheckoutReference(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2 text-left">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400">Agendar Dia de Entrega (Segunda a Segunda)</label>
+                  <select
+                    className="premium-input w-full bg-brand-dark text-white text-sm py-2.5 px-3 cursor-pointer"
+                    value={checkoutDeliveryDay}
+                    onChange={(e) => setCheckoutDeliveryDay(e.target.value)}
+                  >
+                    <option value="Segunda-feira">Segunda-feira</option>
+                    <option value="Terça-feira">Terça-feira</option>
+                    <option value="Quarta-feira">Quarta-feira</option>
+                    <option value="Quinta-feira">Quinta-feira</option>
+                    <option value="Sexta-feira">Sexta-feira</option>
+                    <option value="Sábado">Sábado</option>
+                    <option value="Domingo">Domingo</option>
+                  </select>
                 </div>
 
                 <div className="bg-brand-dark p-6 rounded-2xl space-y-3">

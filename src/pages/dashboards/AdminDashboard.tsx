@@ -255,6 +255,8 @@ function parseProductMeta(product: any) {
   let brand = '';
   let category = 'Outros';
   let subcategory = 'Diversos';
+  let phone1 = '';
+  let phone2 = '';
 
   try {
     if (description && description.trim().startsWith('{') && description.trim().endsWith('}')) {
@@ -269,6 +271,8 @@ function parseProductMeta(product: any) {
       brand = meta.brand || '';
       category = meta.category || 'Outros';
       subcategory = meta.subcategory || 'Diversos';
+      phone1 = meta.phone1 || '';
+      phone2 = meta.phone2 || '';
     }
   } catch (e) {
     // Treat as default plain description
@@ -284,7 +288,9 @@ function parseProductMeta(product: any) {
     condition,
     brand,
     category,
-    subcategory
+    subcategory,
+    phone1: phone1 || 'N/D',
+    phone2: phone2 || 'N/D'
   };
 }
 
@@ -502,6 +508,21 @@ function ProductsTab() {
                     <div>
                       <span className="text-gray-500 font-bold block mb-0.5">Peso</span>
                       <span className="text-white font-mono font-medium">{selectedMeta.weight ? `${selectedMeta.weight} kg` : 'N/D'}</span>
+                    </div>
+                  </div>
+
+                  {/* Contactos do Produtor para recolha se agendado */}
+                  <div className="bg-brand-blue/5 border border-brand-blue/20 rounded-xl p-3.5 space-y-2 my-4">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-brand-blue">Contactos do Produtor (Para Recolha)</h4>
+                    <div className="grid grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <span className="text-gray-400 block font-sans">Telefone Principal</span>
+                        <span className="text-white font-mono font-semibold">{selectedMeta.phone1}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block font-sans">Telefone Secundário</span>
+                        <span className="text-white font-mono font-semibold">{selectedMeta.phone2}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -730,28 +751,22 @@ function AdminWalletTab() {
     if (!profile) return;
     try {
       setLoading(true);
-      // Fetch wallet balance
-      const { data: walletData, error: walletError } = await supabase
-        .from('wallets')
-        .select('*')
-        .eq('user_id', profile.id)
-        .single();
       
-      if (walletError && walletError.code !== 'PGRST116') {
-        throw walletError;
-      }
-      
-      // If wallet doesn't exist, try to insert one (fallback)
-      if (!walletData) {
-        const { data: newWallet, error: insertError } = await supabase
-          .from('wallets')
-          .insert([{ user_id: profile.id, balance: 0 }])
-          .select()
-          .single();
-        if (insertError) throw insertError;
-        setWallet(newWallet);
-      } else {
-        setWallet(walletData);
+      // Calcular comissão de administração dinâmica = 10% de todos os pedidos concluídos
+      const { data: completedOrders, error: oErr } = await supabase
+        .from('orders')
+        .select('*, products!inner(*)')
+        .eq('status', 'delivered');
+
+      if (oErr) throw oErr;
+
+      let totalComm = 0;
+      if (completedOrders) {
+        completedOrders.forEach((o: any) => {
+          const price = Number(o.products?.price) || 0;
+          const comm = price * 0.10; // 10% comissão plataforma
+          totalComm += comm;
+        });
       }
 
       // Fetch withdrawals list of the Admin
@@ -763,6 +778,21 @@ function AdminWalletTab() {
 
       if (wdError) throw wdError;
       setWithdrawals(wdData || []);
+
+      let totalWithdrawn = 0;
+      if (wdData) {
+        wdData.forEach((wd: any) => {
+          totalWithdrawn += Number(wd.amount);
+        });
+      }
+
+      const balance = Math.max(0, totalComm - totalWithdrawn);
+      setWallet({
+        id: profile.id,
+        user_id: profile.id,
+        balance,
+        updated_at: new Date().toISOString()
+      } as any);
 
     } catch (err: any) {
       console.error(err);
@@ -1026,73 +1056,6 @@ function OrdersTab() {
 
   const handleUpdateOrderStatus = async (order: any, newStatus: string) => {
     try {
-      if (newStatus === 'delivered' && order.status !== 'delivered') {
-        const product = order.products;
-        if (!product) {
-          throw new Error('Produto não encontrado.');
-        }
-
-        const priceNum = Number(product.price);
-        const affiliateCommPercent = Number(product.affiliate_commission) || 0;
-        const platformCommPercent = 10;
-
-        const platformFee = priceNum * (platformCommPercent / 100);
-        const affiliateReward = affiliateCommPercent > 0 && order.affiliate_id ? priceNum * (affiliateCommPercent / 100) : 0;
-        const producerNetEarnings = Math.max(0, priceNum - platformFee - affiliateReward);
-
-        // 1. Pay Producer
-        const { data: producerWallet, error: pWalletErr } = await supabase
-          .from('wallets')
-          .select('*')
-          .eq('user_id', product.producer_id)
-          .single();
-
-        if (pWalletErr && pWalletErr.code !== 'PGRST116') throw pWalletErr;
-
-        const newPBalance = (producerWallet ? Number(producerWallet.balance) : 0) + producerNetEarnings;
-
-        if (producerWallet) {
-          const { error: pUpErr } = await supabase
-            .from('wallets')
-            .update({ balance: newPBalance })
-            .eq('id', producerWallet.id);
-          if (pUpErr) throw pUpErr;
-        } else {
-          const { error: pInsErr } = await supabase
-            .from('wallets')
-            .insert([{ user_id: product.producer_id, balance: newPBalance }]);
-          if (pInsErr) throw pInsErr;
-        }
-
-        // 2. Pay Affiliate
-        if (affiliateReward > 0 && order.affiliate_id) {
-          const { data: affiliateWallet, error: aWalletErr } = await supabase
-            .from('wallets')
-            .select('*')
-            .eq('user_id', order.affiliate_id)
-            .single();
-
-          if (aWalletErr && aWalletErr.code !== 'PGRST116') throw aWalletErr;
-
-          const newABalance = (affiliateWallet ? Number(affiliateWallet.balance) : 0) + affiliateReward;
-
-          if (affiliateWallet) {
-            const { error: aUpErr } = await supabase
-              .from('wallets')
-              .update({ balance: newABalance })
-              .eq('id', affiliateWallet.id);
-            if (aUpErr) throw aUpErr;
-          } else {
-            const { error: aInsErr } = await supabase
-              .from('wallets')
-              .insert([{ user_id: order.affiliate_id, balance: newABalance }]);
-            if (aInsErr) throw aInsErr;
-          }
-        }
-        
-        toast.success('Valores creditados com sucesso nas carteiras!');
-      }
-
       const { error: statusErr } = await supabase
         .from('orders')
         .update({ status: newStatus })

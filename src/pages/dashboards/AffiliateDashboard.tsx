@@ -36,8 +36,45 @@ export default function AffiliateDashboard() {
 
   const fetchWallet = async () => {
     if (!profile) return;
-    const { data } = await supabase.from('wallets').select('*').eq('user_id', profile.id).single();
-    setWallet(data);
+    try {
+      const { data: completedOrders } = await supabase
+        .from('orders')
+        .select('*, products!inner(*)')
+        .eq('status', 'delivered')
+        .eq('affiliate_id', profile.id);
+
+      const { data: withdrawals } = await supabase
+        .from('withdrawals')
+        .select('*')
+        .eq('user_id', profile.id);
+
+      let totalEarnings = 0;
+      if (completedOrders) {
+        completedOrders.forEach((order: any) => {
+          const priceNum = Number(order.products.price);
+          const affiliateCommPercent = Number(order.products.affiliate_commission) || 0;
+          const affiliateReward = affiliateCommPercent > 0 ? priceNum * (affiliateCommPercent / 100) : 0;
+          totalEarnings += affiliateReward;
+        });
+      }
+
+      let totalWithdrawn = 0;
+      if (withdrawals) {
+        withdrawals.forEach((wd: any) => {
+          totalWithdrawn += Number(wd.amount);
+        });
+      }
+
+      const balance = Math.max(0, totalEarnings - totalWithdrawn);
+      setWallet({
+        id: profile.id,
+        user_id: profile.id,
+        balance,
+        updated_at: new Date().toISOString()
+      } as any);
+    } catch (err) {
+      console.error("Failed to compute dynamic affiliate wallet balance:", err);
+    }
   };
 
   return (

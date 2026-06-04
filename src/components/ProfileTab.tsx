@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { User, Lock, Save, Shield } from 'lucide-react';
+import { User, Lock, Save, Shield, Camera, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ProfileTab() {
@@ -11,6 +11,18 @@ export default function ProfileTab() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmittingName, setIsSubmittingName] = useState(false);
   const [isSubmittingPass, setIsSubmittingPass] = useState(false);
+
+  // Profile Avatar states
+  const [avatar, setAvatar] = useState<string>('');
+  const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    if (profile) {
+      setName(profile.name || '');
+      const cachedAvatar = localStorage.getItem(`profile_avatar_${profile.id}`);
+      setAvatar(cachedAvatar || (profile as any)?.avatar_url || '');
+    }
+  }, [profile]);
 
   const handleUpdateName = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +41,7 @@ export default function ProfileTab() {
 
       if (error) throw error;
       await refreshProfile();
-      toast.success('Nome de perfil atualizado com sucesso!');
+      toast.success('Nome de perfil updated com sucesso!');
     } catch (err: any) {
       toast.error('Erro ao atualizar nome: ' + err.message);
     } finally {
@@ -66,11 +78,148 @@ export default function ProfileTab() {
     }
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Por favor, carregue uma imagem válida.');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('A imagem de perfil não pode exceder 2MB.');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result as string;
+        setAvatar(base64String);
+
+        if (profile) {
+          // 1. Guardar no localStorage
+          localStorage.setItem(`profile_avatar_${profile.id}`, base64String);
+
+          // 2. Tentar atualizar a tabela de profiles de forma resiliente
+          try {
+            const { error } = await supabase
+              .from('profiles')
+              .update({ avatar_url: base64String } as any)
+              .eq('id', profile.id);
+
+            if (error) {
+              await supabase
+                .from('profiles')
+                .update({ avatar: base64String } as any)
+                .eq('id', profile.id);
+            }
+          } catch (err) {
+            console.warn("Could not save avatar directly to cloud table. Stored in browser local storage.", err);
+          }
+          
+          toast.success('Foto de perfil carregada com êxito!');
+          await refreshProfile();
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      toast.error('Erro ao processar imagem de perfil: ' + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!profile) return;
+    try {
+      setAvatar('');
+      localStorage.removeItem(`profile_avatar_${profile.id}`);
+      try {
+        await supabase
+          .from('profiles')
+          .update({ avatar_url: null } as any)
+          .eq('id', profile.id);
+      } catch (e) {
+        // Silent error
+      }
+      toast.success('Foto de perfil removida.');
+      await refreshProfile();
+    } catch (err: any) {
+      toast.error('Erro ao remover foto: ' + err.message);
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-4xl">
       <div>
         <h2 className="text-3xl font-bold font-display text-white">O Meu Perfil</h2>
-        <p className="text-sm text-gray-400 font-sans mt-1">Gerencie as suas informações de login e perfil de utilizador.</p>
+        <p className="text-sm text-gray-400 font-sans mt-1">Gerencie as suas informações de login, foto e perfil de utilizador.</p>
+      </div>
+
+      {/* Profile Photo Bento Section */}
+      <div className="premium-card p-6 border border-brand-border/40 bg-brand-dark/20 rounded-2xl shadow-xl flex flex-col sm:flex-row items-center gap-6">
+        <div className="relative group">
+          <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-brand-blue/40 bg-brand-surface flex items-center justify-center relative">
+            {avatar ? (
+              <img src={avatar} alt="Foto de Perfil" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-brand-blue/10 text-brand-blue font-bold text-3xl font-display font-display">
+                {name ? name.slice(0, 2).toUpperCase() : 'U'}
+              </div>
+            )}
+            
+            {isUploading && (
+              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+
+          <label className="absolute bottom-0 right-0 p-2 bg-brand-blue text-white rounded-full cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-md">
+            <input 
+              type="file" 
+              accept="image/*" 
+              className="hidden" 
+              onChange={handleAvatarUpload} 
+              disabled={isUploading} 
+            />
+            <Camera size={14} />
+          </label>
+        </div>
+
+        <div className="text-center sm:text-left space-y-1">
+          <h3 className="text-lg font-bold text-white font-display flex items-center gap-2 justify-center sm:justify-start">
+            {name || 'Utilizador'}
+            <span className="text-xs py-0.5 px-2 bg-brand-blue/10 border border-brand-blue/30 text-brand-blue rounded-full font-mono font-semibold uppercase tracking-wider scale-95">
+              {profile?.role === 'admin' ? 'Administrador' :
+               profile?.role === 'producer' ? 'Produtor nacional' :
+               profile?.role === 'affiliate' ? 'Afiliado digital' : 'Comprador (Cliente)'}
+            </span>
+          </h3>
+          <p className="text-xs text-gray-400 font-sans">{profile?.email}</p>
+          <div className="flex gap-2 pt-2 justify-center sm:justify-start">
+            <button 
+              onClick={() => document.querySelector('input[type="file"]')?.dispatchEvent(new MouseEvent('click'))}
+              className="text-xs font-bold text-brand-blue hover:underline cursor-pointer"
+            >
+              Alterar Foto
+            </button>
+            {avatar && (
+              <>
+                <span className="text-gray-600">|</span>
+                <button 
+                  onClick={handleRemoveAvatar}
+                  className="text-xs font-bold text-red-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 size={12} /> Remover
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -84,7 +233,7 @@ export default function ProfileTab() {
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase tracking-wider text-gray-400 block">Tipo de Conta</label>
               <div>
-                <span className="inline-block py-1 px-3.5 rounded-full text-xs font-bold uppercase tracking-widest bg-brand-blue/10 border border-brand-blue/35 text-brand-blue font-mono">
+                <span className="inline-block py-1 px-3.5 rounded-full text-xs font-bold uppercase tracking-widest bg-brand-blue/10 border border-brand-blue/35 text-brand-blue font-mono font-mono">
                   {profile?.role === 'admin' ? 'Administrador' :
                    profile?.role === 'producer' ? 'Produtor nacional' :
                    profile?.role === 'affiliate' ? 'Afiliado digital' : 'Comprador (Cliente)'}
