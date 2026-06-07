@@ -21,9 +21,12 @@ import {
   Check,
   ShoppingBag,
   CreditCard,
-  Calculator
+  Calculator,
+  X,
+  Menu,
+  ChevronRight
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
 import ProfileTab from '../../components/ProfileTab';
 import { getAbandonedCarts, recoverAbandonedCart, AbandonedCart } from '../../lib/abandonedCarts';
@@ -32,6 +35,7 @@ import { parseOrderDetails } from '../../lib/orderDetails';
 export default function AffiliateDashboard() {
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'wallet' | 'ranking' | 'profile'>('overview');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -102,8 +106,110 @@ export default function AffiliateDashboard() {
   };
 
   return (
-    <div className="flex min-h-screen bg-brand-black">
-      <aside className="w-64 border-r border-brand-border p-6 flex flex-col gap-8 hidden md:flex">
+    <div className="flex flex-col md:flex-row min-h-screen bg-brand-black text-white">
+      {/* Mobile Top Navigation Header */}
+      <header className="flex md:hidden items-center justify-between p-4 border-b border-brand-border bg-brand-black sticky top-0 z-50">
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 border border-brand-border rounded-xl text-gray-400 hover:text-white bg-brand-surface/50 transition-colors"
+        >
+          {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-sm shadow-md shadow-brand-blue/10">
+            AF
+          </div>
+          <div className="text-right">
+            <h1 className="text-sm font-bold text-white font-display">Área de Afiliado</h1>
+            <p className="text-[10px] text-gray-500 font-mono">
+              {[
+                { id: 'overview', label: 'Estatísticas' },
+                { id: 'marketplace', label: 'Produtos' },
+                { id: 'wallet', label: 'Minha Carteira' },
+                { id: 'ranking', label: 'Ranking' },
+                { id: 'profile', label: 'O Meu Perfil' },
+              ].find(item => item.id === activeTab)?.label}
+            </p>
+          </div>
+        </div>
+      </header>
+
+      {/* Mobile Sidebar (Drawer) sliding from the left */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black z-40 md:hidden"
+            />
+            
+            {/* Sidebar drawer panel */}
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 left-0 bottom-0 w-72 bg-brand-surface border-r border-brand-border z-50 md:hidden flex flex-col p-6 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-8 pb-4 border-b border-brand-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-base shadow-md shadow-brand-blue/20">
+                    AF
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-white font-display">Navegação</h2>
+                    <p className="text-[10px] text-gray-400 font-mono">Affiliate Area</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-2 border border-brand-border rounded-xl text-gray-400 hover:text-white bg-brand-dark/50 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <nav className="flex flex-col gap-1 overflow-y-auto pr-1">
+                {[
+                  { id: 'overview', label: 'Estatísticas', icon: <TrendingUp size={20} /> },
+                  { id: 'marketplace', label: 'Produtos', icon: <List size={20} /> },
+                  { id: 'wallet', label: 'Minha Carteira', icon: <WalletIcon size={20} /> },
+                  { id: 'ranking', label: 'Ranking', icon: <Trophy size={20} /> },
+                  { id: 'profile', label: 'O Meu Perfil', icon: <User size={20} /> },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                      activeTab === item.id 
+                        ? 'bg-brand-blue text-white shadow-lg shadow-brand-blue/20' 
+                        : 'text-gray-400 hover:bg-brand-dark hover:text-white'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-medium text-sm">{item.label}</span>
+                    {activeTab === item.id && <ChevronRight className="ml-auto text-white" size={16} />}
+                  </button>
+                ))}
+              </nav>
+
+              <div className="mt-auto pt-6 border-t border-brand-border text-center">
+                <p className="text-xs text-gray-500 font-mono">© 2026 AI Studio Build</p>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar for Desktop */}
+      <aside className="w-64 border-r border-brand-border p-6 flex flex-col gap-8 hidden md:flex shrink-0">
         <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500">Affiliate Area</h2>
         <nav className="flex flex-col gap-1">
           {[
@@ -129,7 +235,7 @@ export default function AffiliateDashboard() {
         </nav>
       </aside>
 
-      <main className="flex-1 p-6 md:p-12 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-12 overflow-y-auto">
         <motion.div
            key={activeTab}
            initial={{ opacity: 0, y: 10 }}

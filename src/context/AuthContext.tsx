@@ -52,7 +52,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAdmin();
 
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.warn('Initial session recovery failed:', error.message);
+        // If there's a token/refresh error, call signOut to completely clean local storage / client state
+        if (error.message?.includes('Refresh Token') || error.message?.includes('invalid')) {
+          supabase.auth.signOut().catch(() => {});
+        }
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -60,6 +72,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setLoading(false);
       }
+    }).catch((err) => {
+      console.error('Failed to resolve initial session:', err);
+      setLoading(false);
     });
 
     // Listen for auth changes

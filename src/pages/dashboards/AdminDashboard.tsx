@@ -19,7 +19,8 @@ import {
   X,
   Calendar,
   User,
-  ShoppingCart
+  ShoppingCart,
+  Menu
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -43,6 +44,7 @@ import { parseOrderDetails } from '../../lib/orderDetails';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'withdrawals' | 'users' | 'delivery' | 'rankings' | 'wallet' | 'orders' | 'profile'>('overview');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const menuItems = [
     { id: 'overview', label: 'Visão Geral', icon: <BarChart3 size={20} /> },
@@ -57,9 +59,98 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="flex min-h-screen bg-brand-black">
-      {/* Sidebar */}
-      <aside className="w-64 border-r border-brand-border p-6 flex flex-col gap-8 hidden md:flex">
+    <div className="flex flex-col md:flex-row min-h-screen bg-brand-black text-white">
+      {/* Mobile Top Navigation Header */}
+      <header className="flex md:hidden items-center justify-between p-4 border-b border-brand-border bg-brand-black sticky top-0 z-50">
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 border border-brand-border rounded-xl text-gray-400 hover:text-white bg-brand-surface/50 transition-colors"
+        >
+          {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-sm shadow-md shadow-brand-blue/10">
+            A
+          </div>
+          <div className="text-right">
+            <h1 className="text-sm font-bold text-white font-display">Painel Administrativo</h1>
+            <p className="text-[10px] text-gray-500 font-mono">
+              {menuItems.find(item => item.id === activeTab)?.label}
+            </p>
+          </div>
+        </div>
+      </header>
+
+      {/* Mobile Sidebar (Drawer) sliding from the left */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black z-40 md:hidden"
+            />
+            
+            {/* Sidebar drawer panel */}
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 left-0 bottom-0 w-72 bg-brand-surface border-r border-brand-border z-50 md:hidden flex flex-col p-6 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-8 pb-4 border-b border-brand-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-base shadow-md shadow-brand-blue/20">
+                    A
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-white font-display">Navegação</h2>
+                    <p className="text-[10px] text-gray-400 font-mono">Admin Control</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="p-2 border border-brand-border rounded-xl text-gray-400 hover:text-white bg-brand-dark/50 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <nav className="flex flex-col gap-1 overflow-y-auto pr-1">
+                {menuItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id as any);
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                      activeTab === item.id 
+                        ? 'bg-brand-blue text-white shadow-lg shadow-brand-blue/20' 
+                        : 'text-gray-400 hover:bg-brand-dark hover:text-white'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-medium text-sm">{item.label}</span>
+                    {activeTab === item.id && <ChevronRight className="ml-auto text-white" size={16} />}
+                  </button>
+                ))}
+              </nav>
+
+              <div className="mt-auto pt-6 border-t border-brand-border text-center">
+                <p className="text-xs text-gray-500 font-mono">© 2026 AI Studio Build</p>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar for Desktop */}
+      <aside className="w-64 border-r border-brand-border p-6 flex flex-col gap-8 hidden md:flex shrink-0">
         <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500">Admin Control</h2>
         <nav className="flex flex-col gap-1">
           {menuItems.map((item) => (
@@ -81,7 +172,7 @@ export default function AdminDashboard() {
       </aside>
 
       {/* Main Area */}
-      <main className="flex-1 p-6 md:p-12 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-12 overflow-y-auto">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -121,7 +212,7 @@ function UsersTab() {
   return (
     <div className="space-y-8">
       <h2 className="text-3xl font-bold font-display">Utilizadores Registados</h2>
-      <div className="premium-card overflow-hidden">
+      <div className="premium-card overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-brand-dark border-b border-brand-border">
             <tr>
@@ -660,7 +751,7 @@ function ProductsTab() {
         </div>
       </div>
 
-      <div className="premium-card overflow-hidden border border-brand-border/40 bg-brand-dark/20 rounded-2xl shadow-xl">
+      <div className="premium-card overflow-x-auto border border-brand-border/40 bg-brand-dark/20 rounded-2xl shadow-xl">
         <table className="w-full text-left">
           <thead>
             <tr className="bg-brand-dark border-b border-brand-border">
@@ -932,7 +1023,7 @@ function WithdrawalsTab() {
   return (
     <div className="space-y-8">
       <h2 className="text-3xl font-bold font-display">Pedidos de Levantamento</h2>
-      <div className="premium-card">
+      <div className="premium-card overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-brand-dark border-b border-brand-border">
             <tr>
@@ -979,6 +1070,9 @@ function DeliveryTab() {
   const [fees, setFees] = useState<DeliveryFee[]>([]);
   const [neighborhood, setNeighborhood] = useState('');
   const [amount, setAmount] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editNeighborhood, setEditNeighborhood] = useState('');
+  const [editAmount, setEditAmount] = useState('');
 
   useEffect(() => { fetchFees(); }, []);
 
@@ -995,6 +1089,47 @@ function DeliveryTab() {
       toast.success('Taxa adicionada');
       setNeighborhood('');
       setAmount('');
+      fetchFees();
+    }
+  };
+
+  const deleteFee = async (id: string) => {
+    const { error } = await supabase.from('delivery_fees').delete().eq('id', id);
+    if (error) {
+      toast.error('Erro ao excluir taxa: ' + error.message);
+    } else {
+      toast.success('Taxa excluída com sucesso');
+      fetchFees();
+    }
+  };
+
+  const startEdit = (fee: DeliveryFee) => {
+    setEditingId(fee.id);
+    setEditNeighborhood(fee.neighborhood);
+    setEditAmount(String(fee.amount));
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditNeighborhood('');
+    setEditAmount('');
+  };
+
+  const saveEdit = async (id: string) => {
+    if (!editNeighborhood.trim() || !editAmount) {
+      toast.error('Preencha todos os campos corretamente');
+      return;
+    }
+    const { error } = await supabase.from('delivery_fees').update({
+      neighborhood: editNeighborhood,
+      amount: Number(editAmount)
+    }).eq('id', id);
+
+    if (error) {
+      toast.error('Erro ao atualizar taxa: ' + error.message);
+    } else {
+      toast.success('Taxa atualizada com sucesso');
+      setEditingId(null);
       fetchFees();
     }
   };
@@ -1023,17 +1158,69 @@ function DeliveryTab() {
       </form>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {fees.map((fee) => (
-          <div key={fee.id} className="premium-card p-6 flex items-center justify-between">
-            <div>
-              <p className="font-bold">{fee.neighborhood}</p>
-              <p className="text-brand-blue font-display">Kz {Number(fee.amount).toLocaleString()}</p>
+        {fees.map((fee) => {
+          const isEditing = editingId === fee.id;
+          return (
+            <div key={fee.id} className="premium-card p-5 flex flex-col justify-between gap-4">
+              {isEditing ? (
+                <div className="flex flex-col gap-2 w-full">
+                  <input
+                    value={editNeighborhood}
+                    onChange={(e) => setEditNeighborhood(e.target.value)}
+                    className="premium-input text-sm py-1.5 px-3"
+                    placeholder="Bairro"
+                    required
+                  />
+                  <input
+                    type="number"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    className="premium-input text-sm py-1.5 px-3"
+                    placeholder="Valor (Kz)"
+                    required
+                  />
+                  <div className="flex gap-2 mt-1 justify-end">
+                    <button
+                      onClick={cancelEdit}
+                      className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-brand-border rounded-lg"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => saveEdit(fee.id)}
+                      className="px-3 py-1.5 text-xs bg-brand-blue text-white rounded-lg hover:bg-brand-blue/80"
+                    >
+                      Salvar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between w-full">
+                  <div>
+                    <p className="font-bold text-gray-100">{fee.neighborhood}</p>
+                    <p className="text-brand-blue font-display text-sm font-semibold mt-1">Kz {Number(fee.amount).toLocaleString()}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => startEdit(fee)}
+                      className="text-gray-400 p-2 hover:bg-white/5 hover:text-white rounded-lg transition-colors"
+                      title="Editar"
+                    >
+                      <SettingsIcon size={18} />
+                    </button>
+                    <button 
+                      onClick={() => deleteFee(fee.id)}
+                      className="text-red-500 p-2 hover:bg-red-500/10 rounded-lg transition-colors"
+                      title="Apagar"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <button className="text-red-500 p-2 hover:bg-red-500/10 rounded-lg">
-              <XCircle size={18} />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
