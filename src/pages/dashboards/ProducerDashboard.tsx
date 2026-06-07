@@ -59,16 +59,20 @@ export default function ProducerDashboard() {
   const fetchWallet = async () => {
     if (!profile) return;
     try {
-      const { data: completedOrders } = await supabase
-        .from('orders')
-        .select('*, products!inner(*)')
-        .eq('status', 'delivered')
-        .eq('products.producer_id', profile.id);
+      const [ordersRes, withdrawalsRes] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('*, products!inner(*)')
+          .eq('status', 'delivered')
+          .eq('products.producer_id', profile.id),
+        supabase
+          .from('withdrawals')
+          .select('*')
+          .eq('user_id', profile.id)
+      ]);
 
-      const { data: withdrawals } = await supabase
-        .from('withdrawals')
-        .select('*')
-        .eq('user_id', profile.id);
+      const completedOrders = ordersRes.data;
+      const withdrawals = withdrawalsRes.data;
 
       let totalEarnings = 0;
       if (completedOrders) {

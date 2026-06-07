@@ -186,13 +186,16 @@ function UsersTab() {
   const { profile: currentAdmin } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => { fetchUsers(); }, []);
 
   const fetchUsers = async () => {
+    setLoading(false);
     const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
     setUsers(data || []);
-    setLoading(false);
   };
 
   const toggleBlockStatus = async (userToModify: Profile) => {
@@ -215,9 +218,42 @@ function UsersTab() {
     }
   };
 
+  // Filter based on search query
+  const filteredUsers = users.filter(u => 
+    (u.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (u.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.role || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Paginated users
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedUsers = filteredUsers.slice(startIndex, startIndex + itemsPerPage);
+
+  // Reset page when search changes
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+  };
+
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold font-display">Utilizadores Registados</h2>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-3xl font-bold font-display">Utilizadores Registados</h2>
+          <p className="text-sm text-gray-400 font-sans mt-1">Gerencie as permissões e estado de bloqueio de contas.</p>
+        </div>
+        <div className="w-full md:w-80">
+          <input
+            type="text"
+            placeholder="Pesquisar por nome, email ou papel..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            className="w-full px-4 py-2.5 bg-brand-surface border border-brand-border/60 rounded-xl text-sm focus:outline-none focus:border-brand-blue font-sans text-white placeholder-gray-500 transition-colors"
+          />
+        </div>
+      </div>
+
       <div className="premium-card overflow-x-auto">
         <table className="w-full text-left col-span-1 border-collapse">
           <thead className="bg-brand-dark border-b border-brand-border">
@@ -231,7 +267,7 @@ function UsersTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-brand-border">
-            {users.map((u) => {
+            {paginatedUsers.map((u) => {
               const belongsToSelf = u.id === currentAdmin?.id;
               
               return (
@@ -294,9 +330,44 @@ function UsersTab() {
                 </tr>
               );
             })}
+            {filteredUsers.length === 0 && !loading && (
+              <tr>
+                <td colSpan={6} className="p-12 text-center text-gray-500 font-sans">
+                  Nenhum utilizador encontrado com esta pesquisa.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {/* Controles de Paginação */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+          <p className="text-xs text-gray-400 font-sans">
+            A mostrar <span className="font-semibold text-white">{startIndex + 1}</span> a <span className="font-semibold text-white">{Math.min(startIndex + itemsPerPage, filteredUsers.length)}</span> de <span className="font-semibold text-white">{filteredUsers.length}</span> utilizadores
+          </p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Anterior
+            </button>
+            <span className="text-xs text-gray-400 font-mono">
+              Pág. <span className="text-white font-semibold">{currentPage}</span> de <span className="text-white font-semibold">{totalPages}</span>
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Seguinte
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -314,19 +385,17 @@ function OverviewTab() {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const { data: ords, error: oErr } = await supabase
-        .from('orders')
-        .select('*, products(*)');
-      
-      if (oErr) throw oErr;
-      setOrders(ords || []);
 
-      const { data: profs, error: pErr } = await supabase
-        .from('profiles')
-        .select('*');
-      
-      if (pErr) throw pErr;
-      setProfiles(profs || []);
+      const [ordsRes, profsRes] = await Promise.all([
+        supabase.from('orders').select('*, products(*)'),
+        supabase.from('profiles').select('*')
+      ]);
+
+      if (ordsRes.error) throw ordsRes.error;
+      if (profsRes.error) throw profsRes.error;
+
+      setOrders(ordsRes.data || []);
+      setProfiles(profsRes.data || []);
 
       const carts = getAbandonedCarts();
       setAbandonedCarts(carts);
@@ -1309,13 +1378,24 @@ function AdminWalletTab() {
     try {
       setLoading(true);
       
-      // Calcular comissão de administração dinâmica = 10% de todos os pedidos concluídos
-      const { data: completedOrders, error: oErr } = await supabase
-        .from('orders')
-        .select('*, products!inner(*)')
-        .eq('status', 'delivered');
+      // Calcular comissão de administração dinâmica e buscar levantamentos concorrentemente
+      const [ordersRes, withdrawalsRes] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('*, products!inner(*)')
+          .eq('status', 'delivered'),
+        supabase
+          .from('withdrawals')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false })
+      ]);
 
-      if (oErr) throw oErr;
+      if (ordersRes.error) throw ordersRes.error;
+      if (withdrawalsRes.error) throw withdrawalsRes.error;
+
+      const completedOrders = ordersRes.data;
+      const wdData = withdrawalsRes.data;
 
       let totalComm = 0;
       if (completedOrders) {
@@ -1326,14 +1406,6 @@ function AdminWalletTab() {
         });
       }
 
-      // Fetch withdrawals list of the Admin
-      const { data: wdData, error: wdError } = await supabase
-        .from('withdrawals')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false });
-
-      if (wdError) throw wdError;
       setWithdrawals(wdData || []);
 
       let totalWithdrawn = 0;
@@ -1584,6 +1656,8 @@ function OrdersTab() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
 
   const fetchOrders = async () => {
     try {
@@ -1641,6 +1715,15 @@ function OrdersTab() {
     return true;
   });
 
+  const totalPages = Math.ceil(filteredOrders.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedOrders = filteredOrders.slice(startIndex, startIndex + itemsPerPage);
+
+  const handleFilterClick = (filterId: string) => {
+    setFilter(filterId);
+    setCurrentPage(1);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1667,7 +1750,7 @@ function OrdersTab() {
         ].map((btn) => (
           <button
             key={btn.id}
-            onClick={() => setFilter(btn.id)}
+            onClick={() => handleFilterClick(btn.id)}
             className={`py-1.5 px-4 rounded-full text-xs font-bold transition-all uppercase tracking-wider cursor-pointer border ${
               filter === btn.id 
                 ? 'bg-brand-blue border-brand-blue text-white shadow-lg shadow-brand-blue/20' 
@@ -1685,9 +1768,9 @@ function OrdersTab() {
             <div key={i} className="premium-card h-28 animate-pulse border border-brand-border/25" />
           ))}
         </div>
-      ) : filteredOrders.length > 0 ? (
+      ) : paginatedOrders.length > 0 ? (
         <div className="grid grid-cols-1 gap-4">
-          {filteredOrders.map((order) => {
+          {paginatedOrders.map((order) => {
             const product = order.products || {};
             const customer = order.customer || {};
             const affiliate = order.affiliate || {};
@@ -1771,6 +1854,34 @@ function OrdersTab() {
       ) : (
         <div className="premium-card py-16 text-center border border-brand-border/25 bg-brand-dark/10 rounded-2xl">
           <p className="text-gray-400 font-sans">Nenhuma encomenda encontrada com este status.</p>
+        </div>
+      )}
+
+      {/* Controles de Paginação */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-brand-border/20">
+          <p className="text-xs text-gray-400 font-sans">
+            A mostrar <span className="font-semibold text-white">{startIndex + 1}</span> a <span className="font-semibold text-white">{Math.min(startIndex + itemsPerPage, filteredOrders.length)}</span> de <span className="font-semibold text-white">{filteredOrders.length}</span> encomendas
+          </p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Anterior
+            </button>
+            <span className="text-xs text-gray-400 font-mono">
+              Pág. <span className="text-white font-semibold">{currentPage}</span> de <span className="text-white font-semibold">{totalPages}</span>
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Seguinte
+            </button>
+          </div>
         </div>
       )}
     </div>
