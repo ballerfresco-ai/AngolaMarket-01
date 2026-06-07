@@ -54,7 +54,9 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode,
   return <>{children}</>;
 }
 
-export default function App() {
+function AppContent() {
+  const { profile, signOut, loading } = useAuth();
+
   // Affiliate tracking
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -65,6 +67,77 @@ export default function App() {
     }
   }, []);
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-brand-black">
+        <div className="w-12 h-12 border-4 border-brand-blue border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (profile?.is_blocked) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-brand-black p-4 text-white">
+        <div className="max-w-md w-full premium-card p-8 border-red-500/30 text-center space-y-6">
+          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto text-red-500 animate-pulse">
+            <AlertCircle size={36} />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold font-display text-white">Conta Bloqueada</h1>
+            <p className="text-gray-400 text-sm leading-relaxed">
+              A sua conta foi temporariamente ou permanentemente suspensa pelo administrador da AngolaMarket por violação dos termos de serviço.
+            </p>
+          </div>
+          <div className="pt-4 border-t border-brand-border">
+            <button
+              onClick={() => signOut()}
+              className="w-full py-3 bg-red-500/20 text-red-100 hover:bg-red-500/30 border border-red-500/30 rounded-xl text-sm font-semibold transition-colors"
+            >
+              Terminar Sessão
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/auth" element={<AuthPage />} />
+      <Route path="/marketplace" element={<Marketplace />} />
+      
+      {/* Dashboards */}
+      <Route path="/admin/*" element={
+        <ProtectedRoute allowedRoles={['admin']}>
+          <AdminDashboard />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/producer/*" element={
+        <ProtectedRoute allowedRoles={['producer']}>
+          <ProducerDashboard />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/affiliate/*" element={
+        <ProtectedRoute allowedRoles={['affiliate']}>
+          <AffiliateDashboard />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/customer/*" element={
+        <ProtectedRoute allowedRoles={['customer']}>
+          <CustomerDashboard />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/dashboard" element={<DashboardRedirect />} />
+    </Routes>
+  );
+}
+
+export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
@@ -75,38 +148,7 @@ export default function App() {
               <div className="w-12 h-12 border-4 border-brand-blue border-t-transparent rounded-full animate-spin" />
             </div>
           }>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/marketplace" element={<Marketplace />} />
-              
-              {/* Dashboards */}
-              <Route path="/admin/*" element={
-                <ProtectedRoute allowedRoles={['admin']}>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/producer/*" element={
-                <ProtectedRoute allowedRoles={['producer']}>
-                  <ProducerDashboard />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/affiliate/*" element={
-                <ProtectedRoute allowedRoles={['affiliate']}>
-                  <AffiliateDashboard />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/customer/*" element={
-                <ProtectedRoute allowedRoles={['customer']}>
-                  <CustomerDashboard />
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/dashboard" element={<DashboardRedirect />} />
-            </Routes>
+            <AppContent />
           </React.Suspense>
         </Layout>
         <Toaster position="top-right" toastOptions={{

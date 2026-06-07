@@ -39,12 +39,18 @@ import toast from 'react-hot-toast';
 import { Product, Withdrawal, Profile, DeliveryFee, Wallet } from '../../types/database';
 import ProfileTab from '../../components/ProfileTab';
 import { getAbandonedCarts, recoverAbandonedCart, AbandonedCart } from '../../lib/abandonedCarts';
-import { ShoppingBag, RefreshCw, Star, Trash2, Mail, Check, CreditCard, ChevronDown } from 'lucide-react';
+import { ShoppingBag, RefreshCw, Star, Trash2, Mail, Check, CreditCard, ChevronDown, Ban, ShieldAlert } from 'lucide-react';
 import { parseOrderDetails } from '../../lib/orderDetails';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'withdrawals' | 'users' | 'delivery' | 'rankings' | 'wallet' | 'orders' | 'profile'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleToggle = () => setIsMobileMenuOpen(prev => !prev);
+    window.addEventListener('toggle-dashboard-drawer', handleToggle);
+    return () => window.removeEventListener('toggle-dashboard-drawer', handleToggle);
+  }, []);
 
   const menuItems = [
     { id: 'overview', label: 'Visão Geral', icon: <BarChart3 size={20} /> },
@@ -60,27 +66,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-brand-black text-white">
-      {/* Mobile Top Navigation Header */}
-      <header className="flex md:hidden items-center justify-between p-4 border-b border-brand-border bg-brand-black sticky top-0 z-50">
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 border border-brand-border rounded-xl text-gray-400 hover:text-white bg-brand-surface/50 transition-colors"
-        >
-          {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-sm shadow-md shadow-brand-blue/10">
-            A
-          </div>
-          <div className="text-right">
-            <h1 className="text-sm font-bold text-white font-display">Painel Administrativo</h1>
-            <p className="text-[10px] text-gray-500 font-mono">
-              {menuItems.find(item => item.id === activeTab)?.label}
-            </p>
-          </div>
-        </div>
-      </header>
-
       {/* Mobile Sidebar (Drawer) sliding from the left */}
       <AnimatePresence>
         {isMobileMenuOpen && (
@@ -198,6 +183,7 @@ export default function AdminDashboard() {
 }
 
 function UsersTab() {
+  const { profile: currentAdmin } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -209,37 +195,105 @@ function UsersTab() {
     setLoading(false);
   };
 
+  const toggleBlockStatus = async (userToModify: Profile) => {
+    if (userToModify.id === currentAdmin?.id) {
+      toast.error('Você não pode bloquear a sua própria conta!');
+      return;
+    }
+
+    const newBlockedState = !userToModify.is_blocked;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_blocked: newBlockedState })
+      .eq('id', userToModify.id);
+
+    if (error) {
+      toast.error(`Erro ao atualizar utilizador: ${error.message}`);
+    } else {
+      toast.success(newBlockedState ? 'Utilizador bloqueado com sucesso' : 'Utilizador desbloqueado com sucesso');
+      setUsers(prev => prev.map(u => u.id === userToModify.id ? { ...u, is_blocked: newBlockedState } : u));
+    }
+  };
+
   return (
     <div className="space-y-8">
       <h2 className="text-3xl font-bold font-display">Utilizadores Registados</h2>
       <div className="premium-card overflow-x-auto">
-        <table className="w-full text-left">
+        <table className="w-full text-left col-span-1 border-collapse">
           <thead className="bg-brand-dark border-b border-brand-border">
             <tr>
               <th className="p-6 text-sm font-bold text-gray-400">Nome</th>
               <th className="p-6 text-sm font-bold text-gray-400">Email</th>
               <th className="p-6 text-sm font-bold text-gray-400">Papel</th>
+              <th className="p-6 text-sm font-bold text-gray-400">Estado</th>
               <th className="p-6 text-sm font-bold text-gray-400">Data de Registo</th>
+              <th className="p-6 text-sm font-bold text-gray-400 text-right font-display">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-brand-border">
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td className="p-6 font-medium">{u.name}</td>
-                <td className="p-6 text-gray-400">{u.email}</td>
-                <td className="p-6">
-                  <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                    u.role === 'admin' ? 'bg-red-500/10 text-red-500' :
-                    u.role === 'producer' ? 'bg-blue-500/10 text-blue-500' :
-                    u.role === 'affiliate' ? 'bg-yellow-500/10 text-yellow-500' :
-                    'bg-gray-500/10 text-gray-500'
-                  }`}>
-                    {u.role}
-                  </span>
-                </td>
-                <td className="p-6 text-sm text-gray-500">{new Date(u.created_at).toLocaleDateString()}</td>
-              </tr>
-            ))}
+            {users.map((u) => {
+              const belongsToSelf = u.id === currentAdmin?.id;
+              
+              return (
+                <tr key={u.id} className={u.is_blocked ? 'bg-red-500/5' : ''}>
+                  <td className="p-6 font-medium">
+                    <div className="flex items-center gap-2">
+                      {u.name}
+                      {belongsToSelf && (
+                        <span className="text-[10px] bg-brand-blue/20 text-brand-blue px-2 py-0.5 rounded-full font-mono">Eu</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-6 text-gray-400">{u.email}</td>
+                  <td className="p-6">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
+                      u.role === 'admin' ? 'bg-red-500/10 text-red-500' :
+                      u.role === 'producer' ? 'bg-blue-500/10 text-blue-500' :
+                      u.role === 'affiliate' ? 'bg-yellow-500/10 text-yellow-500' :
+                      'bg-gray-500/10 text-gray-500'
+                    }`}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="p-6">
+                    {u.is_blocked ? (
+                      <span className="flex items-center gap-1.5 text-xs text-red-500 font-medium bg-red-500/10 px-2 py-1 rounded-lg w-fit">
+                        <Ban size={14} /> Bloqueado
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-xs text-green-500 font-medium bg-green-500/10 px-2 py-1 rounded-lg w-fit">
+                        <Check size={14} /> Ativo
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-6 text-sm text-gray-500">{new Date(u.created_at).toLocaleDateString()}</td>
+                  <td className="p-6 text-right">
+                    {belongsToSelf ? (
+                      <span className="text-xs text-gray-500 italic">N/A</span>
+                    ) : (
+                      <button
+                        onClick={() => toggleBlockStatus(u)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-all ${
+                          u.is_blocked
+                            ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20'
+                            : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                        }`}
+                      >
+                        {u.is_blocked ? (
+                          <>
+                            <Check size={12} /> Desbloquear
+                          </>
+                        ) : (
+                          <>
+                            <Ban size={12} /> Bloquear
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

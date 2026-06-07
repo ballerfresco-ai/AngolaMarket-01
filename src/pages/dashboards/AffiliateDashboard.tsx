@@ -36,6 +36,13 @@ export default function AffiliateDashboard() {
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'wallet' | 'ranking' | 'profile'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleToggle = () => setIsMobileMenuOpen(prev => !prev);
+    window.addEventListener('toggle-dashboard-drawer', handleToggle);
+    return () => window.removeEventListener('toggle-dashboard-drawer', handleToggle);
+  }, []);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -107,33 +114,6 @@ export default function AffiliateDashboard() {
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-brand-black text-white">
-      {/* Mobile Top Navigation Header */}
-      <header className="flex md:hidden items-center justify-between p-4 border-b border-brand-border bg-brand-black sticky top-0 z-50">
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 border border-brand-border rounded-xl text-gray-400 hover:text-white bg-brand-surface/50 transition-colors"
-        >
-          {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-sm shadow-md shadow-brand-blue/10">
-            AF
-          </div>
-          <div className="text-right">
-            <h1 className="text-sm font-bold text-white font-display">Área de Afiliado</h1>
-            <p className="text-[10px] text-gray-500 font-mono">
-              {[
-                { id: 'overview', label: 'Estatísticas' },
-                { id: 'marketplace', label: 'Produtos' },
-                { id: 'wallet', label: 'Minha Carteira' },
-                { id: 'ranking', label: 'Ranking' },
-                { id: 'profile', label: 'O Meu Perfil' },
-              ].find(item => item.id === activeTab)?.label}
-            </p>
-          </div>
-        </div>
-      </header>
-
       {/* Mobile Sidebar (Drawer) sliding from the left */}
       <AnimatePresence>
         {isMobileMenuOpen && (

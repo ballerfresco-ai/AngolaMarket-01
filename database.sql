@@ -1,6 +1,10 @@
 -- AngolaMarket Database Schema for Supabase
 -- Versão Final e Completa
 
+-- ATENÇÃO/Aviso para quem já tem a BD criada:
+-- Execute isto para adicionar a coluna de bloqueio no supabase se já tiver as tabelas criadas:
+-- ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE NOT NULL;
+
 -- Clear existing triggers to avoid conflicts
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
@@ -11,6 +15,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   name TEXT NOT NULL,
   email TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('admin', 'producer', 'affiliate', 'customer')) DEFAULT 'customer',
+  is_blocked BOOLEAN DEFAULT FALSE NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

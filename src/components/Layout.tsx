@@ -20,6 +20,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
+  const isDashboardPage = ['/admin', '/producer', '/affiliate'].some(path => location.pathname.startsWith(path));
+
   const getDashboardPath = () => {
     switch (profile?.role) {
       case 'admin': return '/admin';
@@ -33,15 +35,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-brand-black text-white">
       {/* Navigation */}
-      <nav className="glass-effect sticky top-0 z-50 px-4 md:px-8 py-4 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 group">
-          <div className="w-10 h-10 bg-brand-blue rounded-lg flex items-center justify-center glow-blue transition-transform group-hover:scale-110">
-            <ShoppingBag className="text-white w-6 h-6" />
-          </div>
-          <span className="text-xl font-bold font-display tracking-tight">
-            Angola<span className="text-brand-blue">Market</span>
-          </span>
-        </Link>
+      <nav className="glass-effect sticky top-0 z-50 px-4 md:px-8 py-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          {isDashboardPage && (
+            <button 
+              className="md:hidden p-2 hover:bg-brand-surface border border-brand-border/60 rounded-xl text-gray-400 hover:text-white transition-colors"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('toggle-dashboard-drawer'));
+              }}
+              title="Menu do Painel"
+            >
+              <Menu size={20} />
+            </button>
+          )}
+          <Link to="/" className="flex items-center gap-2 group">
+            <div className="w-10 h-10 bg-brand-blue rounded-lg flex items-center justify-center glow-blue transition-transform group-hover:scale-110">
+              <ShoppingBag className="text-white w-6 h-6" />
+            </div>
+            <span className="text-xl font-bold font-display tracking-tight">
+              Angola<span className="text-brand-blue">Market</span>
+            </span>
+          </Link>
+        </div>
 
         {/* Desktop Menu */}
         <div className="hidden md:flex items-center gap-8">
