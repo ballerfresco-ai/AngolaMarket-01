@@ -593,6 +593,10 @@ function ProductsTab({ products, isAdding, setIsAdding, refresh }: any) {
   const { profile } = useAuth();
   const [imageFiles, setImageFiles] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 6;
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -794,6 +798,16 @@ function compressImage(file: File): Promise<string> {
       }
     }
   };
+
+  const filteredProducts = products.filter((p: any) => {
+    const matchesSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' ? true : p.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedProducts = filteredProducts.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="space-y-8">
@@ -1180,11 +1194,86 @@ function compressImage(file: File): Promise<string> {
         )}
       </AnimatePresence>
 
+      {/* Controles de Filtros e Pesquisa */}
+      {!isAdding && (
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-brand-surface/40 p-4 rounded-2xl border border-brand-border/40">
+          <div className="flex flex-wrap gap-2">
+            {([
+              { id: 'all', label: 'Todos' },
+              { id: 'approved', label: 'Aprovados' },
+              { id: 'pending', label: 'Pendentes' },
+              { id: 'rejected', label: 'Rejeitados' }
+            ] as const).map((btn) => (
+              <button
+                key={btn.id}
+                onClick={() => {
+                  setStatusFilter(btn.id);
+                  setCurrentPage(1);
+                }}
+                className={`py-1.5 px-3.5 rounded-full text-xs font-bold transition-all uppercase tracking-wider cursor-pointer border ${
+                  statusFilter === btn.id 
+                    ? 'bg-brand-blue border-brand-blue text-white shadow-lg' 
+                    : 'bg-brand-dark/50 border-brand-border/50 text-gray-400 hover:text-white'
+                }`}
+              >
+                {btn.label} ({products.filter((p: any) => btn.id === 'all' ? true : p.status === btn.id).length})
+              </button>
+            ))}
+          </div>
+
+          <div className="w-full md:w-72">
+            <input
+              type="text"
+              placeholder="Pesquisar meus produtos..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-4 py-2 bg-brand-dark border border-brand-border/60 rounded-xl text-xs focus:outline-none focus:border-brand-blue font-sans text-white placeholder-gray-500 transition-colors"
+            />
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {products.map((p: Product) => (
+        {paginatedProducts.map((p: Product) => (
           <ProductCardItem key={p.id} p={p} handleDeleteProduct={handleDeleteProduct} />
         ))}
+        {filteredProducts.length === 0 && (
+          <div className="col-span-full text-center py-12 text-gray-500 text-sm font-sans">
+            Nenhum produto encontrado.
+          </div>
+        )}
       </div>
+
+      {/* Controles de Paginação */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-brand-border/20">
+          <p className="text-xs text-gray-400 font-sans">
+            A mostrar <span className="font-semibold text-white">{startIndex + 1}</span> a <span className="font-semibold text-white">{Math.min(startIndex + itemsPerPage, filteredProducts.length)}</span> de <span className="font-semibold text-white">{filteredProducts.length}</span> produtos
+          </p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Anterior
+            </button>
+            <span className="text-xs text-gray-400 font-mono">
+              Pág. <span className="text-white font-semibold">{currentPage}</span> de <span className="text-white font-semibold">{totalPages}</span>
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Seguinte
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

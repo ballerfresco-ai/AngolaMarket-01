@@ -25,7 +25,7 @@ export default function AuthPage() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success('Bem-vindo de volta!');
-        navigate('/dashboard');
+        navigate('/marketplace');
       } else {
         // Enforce admin rule
         if (role === 'admin' && isAdminExist) {
@@ -46,7 +46,7 @@ export default function AuthPage() {
 
         if (authData.user) {
           toast.success('Conta criada com sucesso!');
-          navigate('/dashboard');
+          navigate('/marketplace');
         }
       }
     } catch (error: any) {

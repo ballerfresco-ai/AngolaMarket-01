@@ -374,7 +374,6 @@ function UsersTab() {
 
 function OverviewTab() {
   const [orders, setOrders] = useState<any[]>([]);
-  const [profiles, setProfiles] = useState<any[]>([]);
   const [abandonedCarts, setAbandonedCarts] = useState<AbandonedCart[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -386,16 +385,11 @@ function OverviewTab() {
     try {
       setLoading(true);
 
-      const [ordsRes, profsRes] = await Promise.all([
-        supabase.from('orders').select('*, products(*)'),
-        supabase.from('profiles').select('*')
-      ]);
+      const { data, error } = await supabase.from('orders').select('*, products(*)');
 
-      if (ordsRes.error) throw ordsRes.error;
-      if (profsRes.error) throw profsRes.error;
+      if (error) throw error;
 
-      setOrders(ordsRes.data || []);
-      setProfiles(profsRes.data || []);
+      setOrders(data || []);
 
       const carts = getAbandonedCarts();
       setAbandonedCarts(carts);
@@ -829,10 +823,15 @@ function ProductsTab() {
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
 
   useEffect(() => { fetchProducts(); }, []);
 
   const fetchProducts = async () => {
+    setLoading(true);
     const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
     setProducts(data || []);
     setLoading(false);
@@ -865,13 +864,70 @@ function ProductsTab() {
   const affiliateReward = priceNum * (affiliateCommPercent / 100);
   const netProducer = Math.max(0, priceNum - platformFee - affiliateReward);
 
+  // Apply search query and status filter
+  const filteredProducts = products.filter((p) => {
+    const matchesSearch = 
+      (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.id || '').toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' ? true : p.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  // Paginated products
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedProducts = filteredProducts.slice(startIndex, startIndex + itemsPerPage);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handleFilterClick = (status: 'all' | 'pending' | 'approved' | 'rejected') => {
+    setStatusFilter(status);
+    setCurrentPage(1);
+  };
+
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-3xl font-bold font-display text-white">Gestão de Produtos</h2>
           <p className="text-sm text-gray-400 font-sans mt-1">Aprove ou rejeite novos produtos e visualize as especificações e fotos enviadas de Angola.</p>
         </div>
+        <div className="w-full md:w-80">
+          <input
+            type="text"
+            placeholder="Pesquisar por nome do produto..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            className="w-full px-4 py-2.5 bg-brand-surface border border-brand-border/60 rounded-xl text-sm focus:outline-none focus:border-brand-blue font-sans text-white placeholder-gray-500 transition-colors"
+          />
+        </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex flex-wrap gap-2">
+        {([
+          { id: 'all', label: 'Todos' },
+          { id: 'pending', label: 'Pendentes' },
+          { id: 'approved', label: 'Aprovados' },
+          { id: 'rejected', label: 'Rejeitados' }
+        ] as const).map((btn) => (
+          <button
+            key={btn.id}
+            onClick={() => handleFilterClick(btn.id)}
+            className={`py-1.5 px-4 rounded-full text-xs font-bold transition-all uppercase tracking-wider cursor-pointer border ${
+              statusFilter === btn.id 
+                ? 'bg-brand-blue border-brand-blue text-white shadow-lg shadow-brand-blue/20' 
+                : 'bg-brand-surface border-brand-border/40 text-gray-400 hover:text-white'
+            }`}
+          >
+            {btn.label} ({products.filter(p => btn.id === 'all' ? true : p.status === btn.id).length})
+          </button>
+        ))}
       </div>
 
       <div className="premium-card overflow-x-auto border border-brand-border/40 bg-brand-dark/20 rounded-2xl shadow-xl">
@@ -887,7 +943,7 @@ function ProductsTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-brand-border">
-            {products.map((p) => {
+            {paginatedProducts.map((p) => {
               const meta = parseProductMeta(p);
               return (
                 <tr key={p.id} className="hover:bg-brand-surface/50 transition-colors">
@@ -948,9 +1004,44 @@ function ProductsTab() {
                 </tr>
               );
             })}
+            {filteredProducts.length === 0 && !loading && (
+              <tr>
+                <td colSpan={6} className="p-12 text-center text-gray-500 font-sans">
+                  Nenhum produto encontrado.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {/* Controles de Paginação */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+          <p className="text-xs text-gray-400 font-sans">
+            A mostrar <span className="font-semibold text-white">{startIndex + 1}</span> a <span className="font-semibold text-white">{Math.min(startIndex + itemsPerPage, filteredProducts.length)}</span> de <span className="font-semibold text-white">{filteredProducts.length}</span> produtos
+          </p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Anterior
+            </button>
+            <span className="text-xs text-gray-400 font-mono">
+              Pág. <span className="text-white font-semibold">{currentPage}</span> de <span className="text-white font-semibold">{totalPages}</span>
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Seguinte
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Detalhes e Inspeção Multi-foto */}
       <AnimatePresence>

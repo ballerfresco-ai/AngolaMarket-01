@@ -534,6 +534,9 @@ function OverviewTab({ wallet, orders }: any) {
 
 function ProductsTab({ products }: { products: Product[] }) {
   const { profile } = useAuth();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 6;
 
   const generateLink = (productId: string) => {
     const baseUrl = window.location.origin;
@@ -542,11 +545,37 @@ function ProductsTab({ products }: { products: Product[] }) {
     toast.success('Link de afiliado copiado!');
   };
 
+  const filteredProducts = products.filter((p) =>
+    (p.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedProducts = filteredProducts.slice(startIndex, startIndex + itemsPerPage);
+
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold font-display">Produtos Disponíveis</h2>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-3xl font-bold font-display text-white">Produtos Disponíveis</h2>
+          <p className="text-sm text-gray-400 font-sans mt-1">Gere links de afiliado comissíveis e partilhe para faturar Kz.</p>
+        </div>
+        <div className="w-full md:w-80">
+          <input
+            type="text"
+            placeholder="Pesquisar por nome do produto..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="w-full px-4 py-2.5 bg-brand-surface border border-brand-border/60 rounded-xl text-sm focus:outline-none focus:border-brand-blue font-sans text-white placeholder-gray-500 transition-colors"
+          />
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {products.map((p) => (
+        {paginatedProducts.map((p) => (
           <div key={p.id} className="premium-card p-6 flex gap-6 items-center">
             <img src={p.image_url || ''} className="w-24 h-24 rounded-xl object-cover bg-brand-dark" />
             <div className="flex-1">
@@ -566,7 +595,40 @@ function ProductsTab({ products }: { products: Product[] }) {
             </div>
           </div>
         ))}
+        {filteredProducts.length === 0 && (
+          <div className="col-span-full text-center py-12 text-gray-500 text-sm font-sans">
+            Nenhum produto encontrado.
+          </div>
+        )}
       </div>
+
+      {/* Controles de Paginação */}
+      {totalPages > 1 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-brand-border/20">
+          <p className="text-xs text-gray-400 font-sans">
+            A mostrar <span className="font-semibold text-white">{startIndex + 1}</span> a <span className="font-semibold text-white">{Math.min(startIndex + itemsPerPage, filteredProducts.length)}</span> de <span className="font-semibold text-white">{filteredProducts.length}</span> produtos
+          </p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Anterior
+            </button>
+            <span className="text-xs text-gray-400 font-mono">
+              Pág. <span className="text-white font-semibold">{currentPage}</span> de <span className="text-white font-semibold">{totalPages}</span>
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="px-4 py-2 bg-brand-surface border border-brand-border rounded-xl text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-brand-surface/85 transition-colors"
+            >
+              Seguinte
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

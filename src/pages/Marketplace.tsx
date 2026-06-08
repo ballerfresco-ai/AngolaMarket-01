@@ -218,9 +218,9 @@ export default function Marketplace() {
             <motion.div 
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
-              className="premium-card w-full max-w-lg p-0 overflow-hidden"
+              className="premium-card w-full max-w-lg p-0 overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 border-b border-brand-border flex items-center justify-between bg-brand-dark">
+              <div className="p-6 border-b border-brand-border flex items-center justify-between bg-brand-dark flex-shrink-0">
                 <h3 className="text-xl font-bold">Finalizar Compra</h3>
                 <button 
                   onClick={() => closeCheckoutModal(true)}
@@ -230,7 +230,7 @@ export default function Marketplace() {
                 </button>
               </div>
 
-              <form onSubmit={handleOrder} className="p-8 space-y-6">
+              <form onSubmit={handleOrder} className="p-6 md:p-8 space-y-5 md:space-y-6 overflow-y-auto flex-1 text-left">
                 <div className="flex gap-4 items-center">
                   <img src={buyingProduct.image_url || ''} className="w-20 h-20 rounded-xl object-cover" />
                   <div>
