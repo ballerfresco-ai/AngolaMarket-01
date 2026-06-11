@@ -89,7 +89,9 @@ export default function ProducerDashboard() {
       let totalWithdrawn = 0;
       if (withdrawals) {
         withdrawals.forEach((wd: any) => {
-          totalWithdrawn += Number(wd.amount);
+          if (wd.status !== 'rejected') {
+            totalWithdrawn += Number(wd.amount);
+          }
         });
       }
 

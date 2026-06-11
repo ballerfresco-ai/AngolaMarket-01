@@ -1502,7 +1502,9 @@ function AdminWalletTab() {
       let totalWithdrawn = 0;
       if (wdData) {
         wdData.forEach((wd: any) => {
-          totalWithdrawn += Number(wd.amount);
+          if (wd.status !== 'rejected') {
+            totalWithdrawn += Number(wd.amount);
+          }
         });
       }
 
@@ -1744,6 +1746,7 @@ function AdminWalletTab() {
 }
 
 function OrdersTab() {
+  const { profile: adminProfile } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
@@ -1785,8 +1788,66 @@ function OrdersTab() {
 
       if (statusErr) throw statusErr;
 
+      // Se o status alterou para concluído, creditar fisicamente na tabela "wallets" os valores divididos correspondentes
+      if (newStatus === 'delivered') {
+        const priceNum = Number(order.products?.price) || 0;
+        const affiliateCommPercent = Number(order.products?.affiliate_commission) || 0;
+        const platformFee = priceNum * 0.10; // 10% comissão da plataforma
+        const affiliateReward = affiliateCommPercent > 0 && order.affiliate_id ? priceNum * (affiliateCommPercent / 100) : 0;
+        const sellerNet = Math.max(0, priceNum - platformFee - affiliateReward);
+
+        // 1. Creditar carteira do Produtor
+        const producerId = order.products?.producer_id;
+        if (producerId) {
+          const { data: prodWallet } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', producerId)
+            .maybeSingle();
+
+          const currentProdBal = Number(prodWallet?.balance || 0);
+          const newProdBal = currentProdBal + sellerNet;
+
+          await supabase
+            .from('wallets')
+            .upsert({ user_id: producerId, balance: newProdBal, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+        }
+
+        // 2. Creditar carteira do Afiliado (se aplicável)
+        if (order.affiliate_id && affiliateReward > 0) {
+          const { data: affWallet } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', order.affiliate_id)
+            .maybeSingle();
+
+          const currentAffBal = Number(affWallet?.balance || 0);
+          const newAffBal = currentAffBal + affiliateReward;
+
+          await supabase
+            .from('wallets')
+            .upsert({ user_id: order.affiliate_id, balance: newAffBal, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+        }
+
+        // 3. Creditar carteira do Administrador
+        if (adminProfile?.id) {
+          const { data: admWallet } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', adminProfile.id)
+            .maybeSingle();
+
+          const currentAdmBal = Number(admWallet?.balance || 0);
+          const newAdmBal = currentAdmBal + platformFee;
+
+          await supabase
+            .from('wallets')
+            .upsert({ user_id: adminProfile.id, balance: newAdmBal, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+        }
+      }
+
       toast.success(`Estado atualizado com êxito para: ${
-        newStatus === 'delivered' ? 'Concluído' :
+        newStatus === 'delivered' ? 'Concluído (Carteiras Creditadas)' :
         newStatus === 'out_for_delivery' ? 'Em andamento' :
         newStatus === 'cancelled' ? 'Cancelada' : 'Pendente'
       }`);

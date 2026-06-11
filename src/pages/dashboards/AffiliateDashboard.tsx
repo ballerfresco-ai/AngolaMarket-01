@@ -46,6 +46,7 @@ export default function AffiliateDashboard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -55,18 +56,46 @@ export default function AffiliateDashboard() {
     }
   }, [profile]);
 
+  useEffect(() => {
+    if (profile && activeTab === 'marketplace') {
+      fetchProducts();
+    }
+  }, [profile, activeTab]);
+
   const fetchOrders = async () => {
     if (!profile) return;
-    const { data } = await supabase
-      .from('orders')
-      .select('*, products!inner(*)')
-      .eq('affiliate_id', profile.id);
-    setOrders(data || []);
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, products!inner(*)')
+        .eq('affiliate_id', profile.id);
+      if (error) throw error;
+      setOrders(data || []);
+    } catch (err: any) {
+      console.error("Error fetching affiliate orders:", err);
+    }
   };
 
   const fetchProducts = async () => {
-    const { data } = await supabase.from('products').select('*').eq('status', 'approved');
-    setProducts(data || []);
+    if (!profile) return;
+    try {
+      setLoadingProducts(true);
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw error;
+      }
+      setProducts(data || []);
+    } catch (err: any) {
+      console.error("Error fetching affiliate products:", err);
+      toast.error('Erro ao carregar produtos: ' + err.message);
+    } finally {
+      setLoadingProducts(false);
+    }
   };
 
   const fetchWallet = async () => {
@@ -100,7 +129,9 @@ export default function AffiliateDashboard() {
       let totalWithdrawn = 0;
       if (withdrawals) {
         withdrawals.forEach((wd: any) => {
-          totalWithdrawn += Number(wd.amount);
+          if (wd.status !== 'rejected') {
+            totalWithdrawn += Number(wd.amount);
+          }
         });
       }
 
@@ -226,7 +257,7 @@ export default function AffiliateDashboard() {
            animate={{ opacity: 1, y: 0 }}
         >
           {activeTab === 'overview' && <OverviewTab wallet={wallet} orders={orders} />}
-          {activeTab === 'marketplace' && <ProductsTab products={products} />}
+          {activeTab === 'marketplace' && <ProductsTab products={products} loading={loadingProducts} />}
           {activeTab === 'wallet' && <WalletTab wallet={wallet} />}
           {activeTab === 'ranking' && <RankingTab />}
           {activeTab === 'profile' && <ProfileTab />}
@@ -532,7 +563,7 @@ function OverviewTab({ wallet, orders }: any) {
   );
 }
 
-function ProductsTab({ products }: { products: Product[] }) {
+function ProductsTab({ products, loading }: { products: Product[]; loading: boolean }) {
   const { profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -574,33 +605,40 @@ function ProductsTab({ products }: { products: Product[] }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {paginatedProducts.map((p) => (
-          <div key={p.id} className="premium-card p-6 flex gap-6 items-center">
-            <img src={p.image_url || ''} className="w-24 h-24 rounded-xl object-cover bg-brand-dark" />
-            <div className="flex-1">
-              <h3 className="font-bold text-lg mb-1">{p.name}</h3>
-              <p className="text-brand-blue font-bold text-sm mb-4">Kz {Number(p.price).toLocaleString()}</p>
-              <div className="flex items-center justify-between">
-                <span className="bg-green-500/10 text-green-500 text-xs font-bold px-2 py-1 rounded">
-                  Comissão: {p.affiliate_commission}%
-                </span>
-                <button 
-                  onClick={() => generateLink(p.id)}
-                  className="premium-button-primary py-2 px-6 text-sm flex items-center gap-2"
-                >
-                  <Copy size={14} /> Link
-                </button>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="w-10 h-10 border-4 border-brand-blue border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-sm text-gray-400 font-sans">A carregar produtos disponíveis...</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {paginatedProducts.map((p) => (
+            <div key={p.id} className="premium-card p-6 flex gap-6 items-center">
+              <img src={p.image_url || ''} className="w-24 h-24 rounded-xl object-cover bg-brand-dark" />
+              <div className="flex-1">
+                <h3 className="font-bold text-lg mb-1">{p.name}</h3>
+                <p className="text-brand-blue font-bold text-sm mb-4">Kz {Number(p.price).toLocaleString()}</p>
+                <div className="flex items-center justify-between">
+                  <span className="bg-green-500/10 text-green-500 text-xs font-bold px-2 py-1 rounded">
+                    Comissão: {p.affiliate_commission || 0}%
+                  </span>
+                  <button 
+                    onClick={() => generateLink(p.id)}
+                    className="premium-button-primary py-2 px-6 text-sm flex items-center gap-2"
+                  >
+                    <Copy size={14} /> Link
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-        {filteredProducts.length === 0 && (
-          <div className="col-span-full text-center py-12 text-gray-500 text-sm font-sans">
-            Nenhum produto encontrado.
-          </div>
-        )}
-      </div>
+          ))}
+          {filteredProducts.length === 0 && (
+            <div className="col-span-full text-center py-12 text-gray-500 text-sm font-sans">
+              Nenhum produto encontrado.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Controles de Paginação */}
       {totalPages > 1 && (
