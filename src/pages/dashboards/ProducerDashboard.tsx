@@ -59,51 +59,34 @@ export default function ProducerDashboard() {
   const fetchWallet = async () => {
     if (!profile) return;
     try {
-      const [ordersRes, withdrawalsRes] = await Promise.all([
-        supabase
-          .from('orders')
-          .select('*, products!inner(*)')
-          .eq('status', 'delivered')
-          .eq('products.producer_id', profile.id),
-        supabase
-          .from('withdrawals')
-          .select('*')
-          .eq('user_id', profile.id)
-      ]);
+      const { data, error } = await supabase
+        .from('wallets')
+        .select('*')
+        .eq('user_id', profile.id)
+        .maybeSingle();
 
-      const completedOrders = ordersRes.data;
-      const withdrawals = withdrawalsRes.data;
+      if (error) throw error;
 
-      let totalEarnings = 0;
-      if (completedOrders) {
-        completedOrders.forEach((order: any) => {
-          const priceNum = Number(order.products.price);
-          const affiliateCommPercent = Number(order.products.affiliate_commission) || 0;
-          const platformFee = priceNum * 0.10;
-          const affiliateReward = affiliateCommPercent > 0 && order.affiliate_id ? priceNum * (affiliateCommPercent / 100) : 0;
-          const net = Math.max(0, priceNum - platformFee - affiliateReward);
-          totalEarnings += net;
-        });
+      if (data) {
+        setWallet(data);
+      } else {
+        // Se a carteira não existir, criá-la fisicamente com saldo inicial de 0
+        const newWallet = {
+          id: profile.id,
+          user_id: profile.id,
+          balance: 0,
+          updated_at: new Date().toISOString()
+        };
+        const { data: upsertData } = await supabase
+          .from('wallets')
+          .upsert(newWallet, { onConflict: 'user_id' })
+          .select()
+          .maybeSingle();
+
+        setWallet(upsertData || (newWallet as any));
       }
-
-      let totalWithdrawn = 0;
-      if (withdrawals) {
-        withdrawals.forEach((wd: any) => {
-          if (wd.status !== 'rejected') {
-            totalWithdrawn += Number(wd.amount);
-          }
-        });
-      }
-
-      const balance = Math.max(0, totalEarnings - totalWithdrawn);
-      setWallet({
-        id: profile.id,
-        user_id: profile.id,
-        balance,
-        updated_at: new Date().toISOString()
-      } as any);
     } catch (err) {
-      console.error("Failed to compute dynamic producer wallet balance:", err);
+      console.error("Failed to fetch physical producer wallet balance:", err);
     }
   };
 
@@ -1431,23 +1414,44 @@ function WalletTab({ wallet, refresh }: any) {
   const requestWithdrawal = async (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(amount);
+    
+    if (isNaN(val) || val <= 0) {
+      toast.error('Por favor, insira um valor válido maior que zero.');
+      return;
+    }
+
     if (val > (wallet?.balance || 0)) {
       toast.error('Saldo insuficiente');
       return;
     }
 
-    const { error } = await supabase.from('withdrawals').insert([{
-      user_id: wallet.user_id,
-      amount: val,
-      method,
-      status: 'pending'
-    }]);
+    try {
+      // 1. Inserir pedido de levantamento
+      const { error: wdErr } = await supabase.from('withdrawals').insert([{
+        user_id: wallet.user_id,
+        amount: val,
+        method,
+        status: 'pending'
+      }]);
 
-    if (error) toast.error('Erro ao processar pedido');
-    else {
-      toast.success('Pedido de levantamento enviado!');
+      if (wdErr) throw wdErr;
+
+      // 2. Deduzir saldo da carteira física do produtor
+      const newBalance = Number(wallet.balance) - val;
+      const { error: walletErr } = await supabase
+        .from('wallets')
+        .update({ balance: newBalance, updated_at: new Date().toISOString() })
+        .eq('user_id', wallet.user_id);
+
+      if (walletErr) throw walletErr;
+
+      toast.success('Pedido de levantamento enviado com sucesso!');
       setIsRequesting(false);
       setAmount('');
+      refresh();
+    } catch (err: any) {
+      console.error("Error submitting producer withdrawal:", err);
+      toast.error('Erro ao processar levantamento: ' + err.message);
     }
   };
 

@@ -1227,10 +1227,40 @@ function WithdrawalsTab() {
   };
 
   const updateStatus = async (id: string, status: 'approved' | 'rejected') => {
-    const { error } = await supabase.from('withdrawals').update({ status }).eq('id', id);
-    if (!error) {
-       toast.success(`Levantamento ${status === 'approved' ? 'aprovado' : 'rejeitado'}`);
-       fetchWithdrawals();
+    try {
+      if (status === 'rejected') {
+        const { data: wd, error: findErr } = await supabase
+          .from('withdrawals')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (findErr) throw findErr;
+
+        if (wd) {
+          const { data: userWallet } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', wd.user_id)
+            .maybeSingle();
+
+          const currentBal = Number(userWallet?.balance || 0);
+          const newBal = currentBal + Number(wd.amount);
+
+          await supabase
+            .from('wallets')
+            .upsert({ user_id: wd.user_id, balance: newBal, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+        }
+      }
+
+      const { error } = await supabase.from('withdrawals').update({ status }).eq('id', id);
+      if (error) throw error;
+
+      toast.success(`Levantamento ${status === 'approved' ? 'aprovado' : 'rejeitado'}`);
+      fetchWithdrawals();
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao atualizarlevantamento: ' + err.message);
     }
   };
 
@@ -1469,12 +1499,12 @@ function AdminWalletTab() {
     try {
       setLoading(true);
       
-      // Calcular comissão de administração dinâmica e buscar levantamentos concorrentemente
-      const [ordersRes, withdrawalsRes] = await Promise.all([
+      const [walletRes, withdrawalsRes] = await Promise.all([
         supabase
-          .from('orders')
-          .select('*, products!inner(*)')
-          .eq('status', 'delivered'),
+          .from('wallets')
+          .select('*')
+          .eq('user_id', profile.id)
+          .maybeSingle(),
         supabase
           .from('withdrawals')
           .select('*')
@@ -1482,40 +1512,23 @@ function AdminWalletTab() {
           .order('created_at', { ascending: false })
       ]);
 
-      if (ordersRes.error) throw ordersRes.error;
+      if (walletRes.error) throw walletRes.error;
       if (withdrawalsRes.error) throw withdrawalsRes.error;
 
-      const completedOrders = ordersRes.data;
-      const wdData = withdrawalsRes.data;
+      setWithdrawals(withdrawalsRes.data || []);
 
-      let totalComm = 0;
-      if (completedOrders) {
-        completedOrders.forEach((o: any) => {
-          const price = Number(o.products?.price) || 0;
-          const comm = price * 0.10; // 10% comissão plataforma
-          totalComm += comm;
-        });
+      if (walletRes.data) {
+        setWallet(walletRes.data);
+      } else {
+        const newWallet = {
+          id: profile.id,
+          user_id: profile.id,
+          balance: 0,
+          updated_at: new Date().toISOString()
+        };
+        await supabase.from('wallets').upsert(newWallet, { onConflict: 'user_id' });
+        setWallet(newWallet as any);
       }
-
-      setWithdrawals(wdData || []);
-
-      let totalWithdrawn = 0;
-      if (wdData) {
-        wdData.forEach((wd: any) => {
-          if (wd.status !== 'rejected') {
-            totalWithdrawn += Number(wd.amount);
-          }
-        });
-      }
-
-      const balance = Math.max(0, totalComm - totalWithdrawn);
-      setWallet({
-        id: profile.id,
-        user_id: profile.id,
-        balance,
-        updated_at: new Date().toISOString()
-      } as any);
-
     } catch (err: any) {
       console.error(err);
       toast.error('Erro ao carregar dados da carteira: ' + err.message);
